@@ -90,7 +90,7 @@ OLD_README.md
 docs/updates
 docs/INDEX.md
 docs/superpowers
-
+.superpowers/
 
 # git worktrees for isolated implementation work
 /.worktrees/

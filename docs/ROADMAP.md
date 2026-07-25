@@ -19,11 +19,16 @@ Foundational vertical slice proving the new architecture end-to-end: Python/Fast
 - Architecture: `docs/superpowers/specs/2026-07-25-backend-architecture-design.md` — **the overarching decision**: Next.js becomes 100% frontend; Python/FastAPI/LangGraph becomes the entire backend (file storage, AI, analysis, knowledge graph). CLI-subprocess and API-key strategies both live inside the Python backend, not split across runtimes.
 - Plan: `docs/superpowers/plans/2026-07-25-backend-foundation.md`
 
-## Phase 2 — AI Provider Abstraction (IN PROGRESS)
+## Phase 2 — AI Provider Abstraction (IMPLEMENTATION DONE, PR OPEN — not yet merged)
 
 Single text-completion capability (`prompt in → text out`) proven through both invocation strategies: CLI-subprocess (`claude`/`codex`, no API key — preserves the original "bring your own agent" pitch) and direct API key (Anthropic/OpenAI SDKs). This is the foundation every later AI-touching phase depends on.
 
+All 9 implementation tasks complete via subagent-driven-development: `Provider` interface + 4 concrete providers (`cli_claude`, `cli_codex`, `api_anthropic`, `api_openai`), `config_repository`, provider `factory`, and `POST /agent/complete`. 49/49 backend tests passing; final whole-branch review approved with no Critical/Important findings; manually verified end-to-end against a real OpenAI key. Branch `ai-provider-abstraction` (11 commits ahead of `main`) is pushed to `origin`; PR not yet opened (create at https://github.com/AkiraWinds/Asterism/pull/new/ai-provider-abstraction).
+
+Known deferred compromise (see `todo.md`): API-key providers hardcode model name/`max_tokens`, no per-request model selection yet.
+
 - Spec: `docs/superpowers/specs/2026-07-25-ai-provider-abstraction-design.md`
+- Plan: `docs/superpowers/plans/2026-07-25-ai-provider-abstraction.md`
 - Status doc: `docs/updates/sessions/7-25-ai-provider-abstraction-scoping.md`
 
 ## Phase 3 — Content Ingestion / Extraction
