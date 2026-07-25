@@ -32,6 +32,10 @@ class ClaudeCliProvider(Provider):
             )
         except subprocess.TimeoutExpired as exc:
             raise ProviderTimeoutError(f"Claude CLI timed out after {TIMEOUT_SECONDS}s") from exc
+        except (FileNotFoundError, OSError) as exc:
+            raise ProviderMissingError(
+                "Claude CLI not found on PATH. Install it with 'npm install -g @anthropic-ai/claude-code'."
+            ) from exc
 
         if result.returncode != 0:
             message = result.stderr.strip() or f"Claude CLI exited with code {result.returncode}"

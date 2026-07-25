@@ -49,3 +49,14 @@ def test_complete_raises_timeout_error():
          ):
         with pytest.raises(ProviderTimeoutError):
             provider.complete("Hello")
+
+
+def test_complete_raises_missing_on_file_not_found():
+    provider = ClaudeCliProvider()
+    with patch("app.providers.cli_claude.shutil.which", return_value="/usr/local/bin/claude"), \
+         patch(
+             "app.providers.cli_claude.subprocess.run",
+             side_effect=FileNotFoundError("Binary was removed"),
+         ):
+        with pytest.raises(ProviderMissingError):
+            provider.complete("Hello")
