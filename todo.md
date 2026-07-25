@@ -17,6 +17,11 @@
       (do.html) — investigate the real limit (agent timeout? prompt size?) and fix.
 
 ### Compromises (revisit before launch / scaling)
+- **Backend AI provider abstraction — no model selection for API-key strategy**: `AnthropicApiProvider`/`OpenAiApiProvider`
+  (`backend/app/providers/api_anthropic.py`, `api_openai.py`) hardcode `MODEL` (`claude-sonnet-4-5`, `gpt-4o`) and `MAX_TOKENS`
+  constants with no config override. Fine for the single-capability MVP pass (see
+  `docs/superpowers/specs/2026-07-25-ai-provider-abstraction-design.md`), but users on the api-key strategy can't pick a
+  model. Revisit alongside a future `config.json` `model` field.
 - **Extension server discovery**: probes ports 3000-3003 + 41932 in parallel and
   verifies an `app: "secondbrain"` marker before sending page content; caches the
   last-good port. Good enough for local use — replace with Chrome Native Messaging
