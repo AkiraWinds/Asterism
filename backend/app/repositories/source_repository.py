@@ -26,7 +26,7 @@ def create_source(data_root: Path, title: str, content: str) -> SourceRecord:
         "original_title": title,
     }
     (source_dir / "meta.json").write_text(json.dumps(meta, indent=2))
-    (source_dir / "content.md").write_text(f'---\ntitle: "{title}"\n---\n\n{content}\n')
+    (source_dir / "content.md").write_text(f'---\ntitle: {json.dumps(title)}\n---\n\n{content}\n')
 
     return SourceRecord(id=source_id, title=title, created_at=created_at, content=content)
 
@@ -49,7 +49,7 @@ def create_source_from_url(
     }
     (source_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     (source_dir / "original.html").write_text(html)
-    (source_dir / "content.md").write_text(f'---\ntitle: "{title}"\n---\n\n{content}\n')
+    (source_dir / "content.md").write_text(f'---\ntitle: {json.dumps(title)}\n---\n\n{content}\n')
 
     return SourceRecord(id=source_id, title=title, created_at=created_at, content=content)
 

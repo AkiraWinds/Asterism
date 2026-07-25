@@ -35,7 +35,7 @@ def fetch_url(url: str) -> str:
         )
 
     try:
-        with httpx.Client(timeout=TIMEOUT_SECONDS) as client:
+        with httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True) as client:
             response = client.get(
                 url,
                 headers={

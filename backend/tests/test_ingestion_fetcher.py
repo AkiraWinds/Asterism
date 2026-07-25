@@ -30,6 +30,7 @@ def test_fetch_url_returns_html_on_success():
     assert result == "<html>hello</html>"
     _, kwargs = mock_ctor.call_args
     assert kwargs["timeout"] == 15
+    assert kwargs["follow_redirects"] is True
 
 
 def test_fetch_url_raises_login_required_for_x_dot_com_without_any_http_call():

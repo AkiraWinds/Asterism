@@ -17,6 +17,7 @@ from app.providers.base import (
     ProviderMissingError,
     ProviderTimeoutError,
 )
+from app.repositories.config_repository import ConfigError
 from app.repositories.source_repository import (
     create_source,
     create_source_from_url,
@@ -60,6 +61,8 @@ def create_source_endpoint(payload: SourceCreateRequest):
 
         try:
             content = extract_content(html, payload.url, data_root)
+        except ConfigError as exc:
+            return _error_response(400, "config", str(exc))
         except ProviderMissingError as exc:
             return _error_response(400, "missing", str(exc))
         except ProviderConfigError as exc:
