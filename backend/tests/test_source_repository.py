@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from app.repositories.source_repository import create_source, get_source, list_sources
@@ -53,3 +54,44 @@ def test_get_source_rejects_path_traversal(tmp_path: Path):
     result = get_source(tmp_path, "../outside")
 
     assert result is None
+
+
+def test_create_source_from_url_writes_meta_with_url_fields(tmp_path: Path):
+    from app.repositories.source_repository import create_source_from_url
+
+    record = create_source_from_url(
+        tmp_path,
+        url="https://example.com/article",
+        title="Example Article",
+        html="<html><body>raw html</body></html>",
+        content="Extracted markdown body",
+    )
+
+    source_dir = tmp_path / "library" / record.id
+    meta = json.loads((source_dir / "meta.json").read_text())
+    assert meta["type"] == "html"
+    assert meta["source_url"] == "https://example.com/article"
+    assert meta["original_file"] == "original.html"
+    assert meta["original_title"] == "Example Article"
+
+    assert (source_dir / "original.html").read_text() == "<html><body>raw html</body></html>"
+    assert record.title == "Example Article"
+    assert record.content == "Extracted markdown body"
+
+
+def test_create_source_from_url_is_retrievable_via_get_source(tmp_path: Path):
+    from app.repositories.source_repository import create_source_from_url, get_source
+
+    created = create_source_from_url(
+        tmp_path,
+        url="https://example.com/article",
+        title="Example Article",
+        html="<html><body>raw html</body></html>",
+        content="Extracted markdown body",
+    )
+
+    fetched = get_source(tmp_path, created.id)
+
+    assert fetched is not None
+    assert fetched.title == "Example Article"
+    assert "Extracted markdown body" in fetched.content
