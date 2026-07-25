@@ -1,0 +1,80 @@
+{
+  "triage": {
+    "score": 84,
+    "reason": "Read after the introduction \u2014 the feed, agent panel, and profile pages are where the product compounds.",
+    "action": "worth_reading",
+    "readTimeMinutes": 4,
+    "density": 80,
+    "originality": 58
+  },
+  "digest": {
+    "summary": "A tour of Second Brain beyond the core loop: the agent-curated For You feed, the library-aware agent panel that drafts into the Notebook, the User and Memory profile pages, extension capture for logged-in pages, and the plain-file data model that makes analysis safely regeneratable.",
+    "highlights": [
+      {
+        "id": "h1",
+        "text": "Your agent ranks every story against your Radar topics and reading history \u2014 and writes a briefing that cross-references your own library.",
+        "type": "insight"
+      },
+      {
+        "id": "h2",
+        "text": "Ask the agent to draft a brief connecting your recent sources \u2014 drafts land in your Notebook.",
+        "type": "actionable"
+      },
+      {
+        "id": "h3",
+        "text": "Originals are never touched, so derived layers are always safe to rebuild.",
+        "type": "fact"
+      }
+    ],
+    "concepts": [
+      {
+        "id": "c1",
+        "term": "Radar topics",
+        "definition": "The interests the agent uses to rank every story \u2014 they also become web search queries."
+      },
+      {
+        "id": "c2",
+        "term": "Notebook",
+        "definition": "The sidebar section for agent-drafted documents, beside the Library of captured sources."
+      },
+      {
+        "id": "c3",
+        "term": "Memory page",
+        "definition": "The agent's own evolving notes about what you know and care about, editable like any file."
+      }
+    ],
+    "structure": [
+      "For You feed: sources, radar, briefing",
+      "Agent panel and Notebook drafting",
+      "User and Memory profile pages",
+      "Extension capture for logged-in pages",
+      "File-based data model and reanalysis"
+    ]
+  },
+  "critique": {
+    "hiddenAssumptions": [
+      "The user runs a local agent CLI they already trust with their reading material."
+    ],
+    "potentialIssues": [
+      "Feed quality depends on radar topics \u2014 vague topics produce generic briefings."
+    ],
+    "needsVerification": [
+      "Whether the starter RSS defaults match your interests; swap them early in Settings \u2192 Feed."
+    ],
+    "biasIndicators": [
+      "Product documentation tone \u2014 treats agent-drafted output as reliably useful."
+    ]
+  },
+  "connections": [
+    {
+      "id": "conn-demo002b-demo001a",
+      "type": "related",
+      "summary": "Extends the orientation's core loop into daily-driver features.",
+      "details": "The introduction covers capture, triage, and reading; this guide adds the feed, the agent panel, profile pages, and the file contract underneath them.",
+      "relatedSourceIds": [
+        "demo001a"
+      ]
+    }
+  ],
+  "analyzedAt": "2026-01-15T09:12:00.000Z"
+}

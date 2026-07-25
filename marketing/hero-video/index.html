@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1280, height=800">
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1280px; height: 800px; overflow: hidden; background: #faf9f6; }
+      body { font-family: "Outfit", sans-serif; color: #27272a; }
+      #root { position: relative; width: 1280px; height: 800px; background: #faf9f6; }
+      #bg, #chrome { position: absolute; inset: 0; pointer-events: none; }
+      #chrome { z-index: 20; }
+      #bg-glow { position: absolute; left: -260px; top: -260px; width: 900px; height: 900px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(59,96,68,0.14) 0%, rgba(59,96,68,0) 62%); }
+      #bg-glow-2 { position: absolute; right: -300px; bottom: -320px; width: 820px; height: 820px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(59,96,68,0.10) 0%, rgba(59,96,68,0) 60%); }
+      #grain { position: absolute; inset: 0; opacity: 0.045;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E"); }
+      #topbar { position: absolute; left: 64px; right: 64px; top: 26px; height: 22px;
+        display: flex; align-items: center; justify-content: space-between; }
+      #topbar .brand { display: flex; align-items: center; gap: 10px; font-family: "Space Mono", monospace; }
+      #topbar .brand img { width: 20px; height: 20px; }
+      #topbar .brand span { font-weight: 700; font-size: 15px; letter-spacing: 0.14em; }
+      #topbar .meta { font-family: "Space Mono", monospace; font-size: 12px; letter-spacing: 0.12em; color: #63615a; }
+      #toprule { position: absolute; left: 64px; right: 64px; top: 58px; height: 2px;
+        background: rgba(59,96,68,0.22); transform-origin: left center; }
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-assn" id="root" data-composition-id="main" data-start="0" data-duration="30.6" data-width="1280" data-height="800">
+      <div data-hf-id="hf-qyic" id="bg" class="clip" data-start="0" data-duration="30.6" data-track-index="0">
+        <div data-hf-id="hf-isbq" id="bg-glow"></div><div data-hf-id="hf-vm9z" id="bg-glow-2"></div><div data-hf-id="hf-f6d6" id="grain"></div>
+      </div>
+
+      <div data-hf-id="hf-tg07" id="m-s1" class="clip" data-composition-id="s1" data-composition-src="compositions/s1-capture.html" data-start="0" data-duration="4.2" data-track-index="2" data-width="1280" data-height="800"></div>
+      <div data-hf-id="hf-qpmq" id="m-s2" class="clip" data-composition-id="s2" data-composition-src="compositions/s2-verdict.html" data-start="4.2" data-duration="2.8" data-track-index="2" data-width="1280" data-height="800"></div>
+      <div data-hf-id="hf-35t1" id="m-s3" class="clip" data-composition-id="s3" data-composition-src="compositions/s3-reading.html" data-start="7.0" data-duration="9.6" data-track-index="2" data-width="1280" data-height="800"></div>
+      <div data-hf-id="hf-gd91" id="m-s4" class="clip" data-composition-id="s4" data-composition-src="compositions/s4-foryou.html" data-start="16.6" data-duration="6.6" data-track-index="2" data-width="1280" data-height="800"></div>
+      <div data-hf-id="hf-jwt3" id="m-s5" class="clip" data-composition-id="s5" data-composition-src="compositions/s5-agent.html" data-start="23.2" data-duration="5.4" data-track-index="2" data-width="1280" data-height="800"></div>
+      <div data-hf-id="hf-tz5l" id="m-s6" class="clip" data-composition-id="s6" data-composition-src="compositions/s6-endcard.html" data-start="28.6" data-duration="2.0" data-track-index="2" data-width="1280" data-height="800"></div>
+
+      <div data-hf-id="hf-us15" id="chrome" class="clip" data-start="0" data-duration="30.6" data-track-index="3" data-layout-allow-overflow="">
+        <div data-hf-id="hf-ysdh" id="topbar">
+          <div data-hf-id="hf-oojr" class="brand"><img data-hf-id="hf-4d1q" src="assets/logo.png" alt=""><span data-hf-id="hf-52i9">SECOND BRAIN</span></div>
+          <div data-hf-id="hf-ng7a" class="meta">LOCAL-FIRST · AGENT-NATIVE · YOUR FILES</div>
+        </div>
+        <div data-hf-id="hf-n2b4" id="toprule"></div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#toprule", { scaleX: 0 }, { scaleX: 1, duration: 0.8, ease: "power2.out" }, 0);
+      tl.fromTo("#bg-glow", { scale: 1 }, { scale: 1.1, duration: 15, ease: "sine.inOut", repeat: 1, yoyo: true }, 0);
+      tl.fromTo("#bg-glow-2", { scale: 1.08 }, { scale: 1, duration: 15, ease: "sine.inOut", repeat: 1, yoyo: true }, 0);
+      /* chrome dips while scene-1 zooms fill the frame */
+      tl.to("#topbar, #toprule", { autoAlpha: 0, duration: 0.25 }, 0.35);
+      tl.to("#topbar, #toprule", { autoAlpha: 1, duration: 0.3 }, 4.2);
+      /* …and during the deep zooms of scenes 4 and 5 */
+      tl.to("#topbar, #toprule", { autoAlpha: 0, duration: 0.25 }, 17.1);
+      tl.to("#topbar, #toprule", { autoAlpha: 1, duration: 0.3 }, 20.7);
+      tl.to("#topbar, #toprule", { autoAlpha: 0, duration: 0.25 }, 23.65);
+      tl.to("#topbar, #toprule", { autoAlpha: 1, duration: 0.3 }, 28.6);
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>
