@@ -207,6 +207,10 @@ Status is **inferred from file existence**, not stored:
 ### Track Compromises
 - **Update todo.md**: When making a pragmatic/compromise decision (e.g. "good enough for now" solutions, shortcuts, known limitations), add it to `todo.md` so we know what to revisit before launch or when scaling to more users.
 
+### End-of-Session Summaries
+- **Write a dated session summary**: After finishing a chunk of work (a plan, a multi-step task, a significant decision), write a summary to `docs/updates/sessions/M-D-<short-topic>.md` covering what was done, what's next, and links to any plans/specs touched. This lets a fresh chat window get oriented by reading `docs/INDEX.md` instead of requiring prior conversation history.
+- **Keep `docs/INDEX.md` current**: update it whenever a new plan, spec, or session summary doc is added, so it stays the single entry point for orientation.
+
 ---
 
 ## Lessons Learned

@@ -85,7 +85,9 @@ marketing/*/.thumbnails/
 
 # yan
 OLD_README.md
-docs/updates/plans
+docs/updates
+docs/INDEX.md
+
 
 # git worktrees for isolated implementation work
 /.worktrees/
