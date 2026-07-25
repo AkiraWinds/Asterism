@@ -27,6 +27,9 @@
   initialization for the server's lifetime; deleting the data folder while the
   server runs won't re-seed until restart. Edge case, acceptable.
 
+### Backend rewrite
+- **Hatchling build config**: pyproject.toml requires `[tool.hatch.build.targets.wheel]` with `packages = ["app"]` because hatchling cannot auto-detect that the package directory is named "app" instead of matching the project name "asterism-backend". This is a pragmatic solution; consider aligning the directory name with the project name if the package structure changes.
+
 ### Known Risks
 - A local agent CLI must be installed separately — cannot bundle Claude Code or Codex
 - Agent Mode gate blocks the workspace until a provider is connected

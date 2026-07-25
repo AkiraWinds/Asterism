@@ -61,6 +61,8 @@ next-env.d.ts
 .claude/settings.local.json
 .venv/
 test-sample.pdf
+__pycache__/
+*.pyc
 
 # Agent workspace directories
 /.agents/
