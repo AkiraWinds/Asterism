@@ -22,6 +22,14 @@
   constants with no config override. Fine for the single-capability MVP pass (see
   `docs/superpowers/specs/2026-07-25-ai-provider-abstraction-design.md`), but users on the api-key strategy can't pick a
   model. Revisit alongside a future `config.json` `model` field.
+- **Content ingestion — title unsafe against literal `---` in frontmatter body-split**: `create_source`/`create_source_from_url`
+  (`backend/app/repositories/source_repository.py`) now `json.dumps()` the title before writing it into `content.md`'s YAML
+  frontmatter, which correctly escapes embedded `"` characters. A title containing the literal substring `---` can still
+  corrupt `get_source`'s `raw.split("---", 2)` body-extraction logic, since `json.dumps` doesn't escape hyphens. Low impact —
+  `get_source` reads the title from `meta.json` (properly JSON-escaped), not from the frontmatter, so only `content` would be
+  corrupted, and only for titles containing that exact substring (increasingly plausible now that titles come from arbitrary
+  `og:title` values, not just user-typed text). Revisit with a proper frontmatter serializer (e.g. `yaml.safe_dump`) if this
+  becomes a real problem.
 - **Extension server discovery**: probes ports 3000-3003 + 41932 in parallel and
   verifies an `app: "secondbrain"` marker before sending page content; caches the
   last-good port. Good enough for local use — replace with Chrome Native Messaging
@@ -39,6 +47,15 @@
 - A local agent CLI must be installed separately — cannot bundle Claude Code or Codex
 - Agent Mode gate blocks the workspace until a provider is connected
 - Brave Search API key still needed for feed web search (optional feature)
+
+---
+
+## Future Ideas (Inspiration)
+
+- Medium article import: user has a Medium subscription — check whether Medium exposes
+  an API (official or RSS-based, e.g. `medium.com/feed/@username` or per-publication feeds)
+  that could be used to fetch and extract full article content directly, instead of relying
+  on generic HTML capture for Medium URLs.
 
 ---
 
