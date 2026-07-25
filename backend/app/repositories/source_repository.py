@@ -55,7 +55,14 @@ def list_sources(data_root: Path) -> list[SourceRecord]:
 
 
 def get_source(data_root: Path, source_id: str) -> SourceRecord | None:
-    source_dir = data_root / "library" / source_id
+    library_dir = data_root / "library"
+    source_dir = library_dir / source_id
+
+    resolved_source_dir = source_dir.resolve()
+    resolved_library_dir = library_dir.resolve()
+    if not resolved_source_dir.is_relative_to(resolved_library_dir):
+        return None
+
     meta_path = source_dir / "meta.json"
     content_path = source_dir / "content.md"
     if not meta_path.exists() or not content_path.exists():

@@ -38,3 +38,18 @@ def test_get_source_returns_full_content(tmp_path: Path):
 
 def test_get_source_returns_none_when_missing(tmp_path: Path):
     assert get_source(tmp_path, "does-not-exist") is None
+
+
+def test_get_source_rejects_path_traversal(tmp_path: Path):
+    # A source_id containing traversal segments must not escape data_root/library
+    (tmp_path / "library").mkdir()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    (outside_dir / "meta.json").write_text(
+        '{"id": "x", "created_at": "now", "type": "text", "original_title": "Secret"}'
+    )
+    (outside_dir / "content.md").write_text("secret content")
+
+    result = get_source(tmp_path, "../outside")
+
+    assert result is None
