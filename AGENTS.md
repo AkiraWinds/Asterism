@@ -211,6 +211,9 @@ Status is **inferred from file existence**, not stored:
 - **Write a dated session summary**: After finishing a chunk of work (a plan, a multi-step task, a significant decision), write a summary to `docs/updates/sessions/M-D-<short-topic>.md` covering what was done, what's next, and links to any plans/specs touched. This lets a fresh chat window get oriented by reading `docs/INDEX.md` instead of requiring prior conversation history.
 - **Keep `docs/INDEX.md` current**: update it whenever a new plan, spec, or session summary doc is added, so it stays the single entry point for orientation.
 
+### Keep SDD Workspace Artifacts
+- **Don't delete `.superpowers/sdd/<plan>/` after a plan finishes**: task briefs, reports, and review packages generated during subagent-driven-development stay in place as a record, rather than being cleaned up at plan completion. Note this only survives as long as the worktree does — if the worktree itself is removed later (e.g. after merge), copy anything worth keeping into a durable project location first.
+
 ---
 
 ## Lessons Learned
