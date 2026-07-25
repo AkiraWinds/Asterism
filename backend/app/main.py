@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.routers.sources import router as sources_router
+
 app = FastAPI(title="Asterism Backend")
 
 app.add_middleware(
@@ -9,6 +11,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(sources_router)
 
 
 @app.get("/health")
