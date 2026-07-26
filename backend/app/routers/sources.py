@@ -1,9 +1,13 @@
+"""API routes for creating, listing, and analyzing sources."""
+
 import logging
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.core.config import get_data_root
+from app.graph import build_system_graph, checkpoint_db_path
 from app.ingestion.extractor import extract_content
 from app.ingestion.fetcher import (
     FetchBlockedError,
@@ -19,14 +23,17 @@ from app.providers.base import (
     ProviderMissingError,
     ProviderTimeoutError,
 )
-from app.repositories.config_repository import ConfigError
+from app.repositories.config_repository import ConfigError, load_config
 from app.repositories.source_repository import (
     create_source,
     create_source_from_url,
     get_source,
     list_sources,
+    read_analysis,
+    write_analysis,
 )
 from app.schemas.agent import AgentErrorResponse
+from app.schemas.analysis import AnalysisResult
 from app.schemas.source import (
     SourceCreateRequest,
     SourceDetailResponse,
@@ -88,8 +95,9 @@ def create_source_endpoint(payload: SourceCreateRequest):
         except OSError as exc:
             logger.exception("Failed to persist source for url=%s", payload.url)
             return _error_response(500, "storage", f"Failed to save source: {exc}")
+        # A freshly ingested source has never been analyzed yet, so analysis is None.
         return SourceDetailResponse(
-            id=record.id, title=record.title, created_at=record.created_at, content=record.content
+            id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=None
         )
 
     if not payload.title or payload.content is None:
@@ -99,7 +107,7 @@ def create_source_endpoint(payload: SourceCreateRequest):
 
     record = create_source(data_root, title=payload.title, content=payload.content)
     return SourceDetailResponse(
-        id=record.id, title=record.title, created_at=record.created_at, content=record.content
+        id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=None
     )
 
 
@@ -113,9 +121,70 @@ def list_sources_endpoint() -> list[SourceSummaryResponse]:
 
 @router.get("/{source_id}", response_model=SourceDetailResponse)
 def get_source_endpoint(source_id: str) -> SourceDetailResponse:
-    record = get_source(get_data_root(), source_id)
+    data_root = get_data_root()
+    record = get_source(data_root, source_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Source not found")
+    # analysis.json may not exist yet (source never analyzed) or may hold a
+    # partial result (some fields failed) — read_analysis returns None or an
+    # AnalysisResult with the *_error fields set accordingly in either case.
+    analysis = read_analysis(data_root, source_id)
     return SourceDetailResponse(
-        id=record.id, title=record.title, created_at=record.created_at, content=record.content
+        id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=analysis
     )
+
+
+@router.post("/{source_id}/analyze", response_model=AnalysisResult)
+def analyze_source_endpoint(source_id: str):
+    data_root = get_data_root()
+
+    record = get_source(data_root, source_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    # Config errors (e.g. missing/invalid config.json) are a client-fixable
+    # setup problem distinct from in-graph analysis failures below, so they're
+    # caught separately and reported as 400s before any graph work starts.
+    try:
+        config = load_config(data_root)
+    except ConfigError as exc:
+        return _error_response(400, "config", str(exc))
+
+    # Seed the graph with any previously-saved partial result so a retry only
+    # recomputes fields that are still missing/errored (see app/graph.py's
+    # _analyze_node, which copies these into the analysis subgraph's input).
+    existing = read_analysis(data_root, source_id)
+    db_path = checkpoint_db_path(data_root)
+
+    # The checkpointer is a context manager scoped to just this request: it
+    # opens a sqlite connection for the duration of the graph run and closes
+    # it before the response is returned, rather than holding a
+    # connection open for the process lifetime.
+    with SqliteSaver.from_conn_string(str(db_path)) as checkpointer:
+        graph = build_system_graph(checkpointer)
+        state = {
+            "source_id": source_id,
+            "title": record.title,
+            "content": record.content,
+            "data_root": data_root,
+            "config": config,
+            "result": existing,
+        }
+        # thread_id=source_id ties this run's checkpoints to the source, so a
+        # later retry for the same source resumes from its own saved state.
+        # ProviderMissingError/ProviderConfigError are pre-graph "hard stop"
+        # failures per spec: they're config-level problems (CLI not on PATH,
+        # bad API key) that no retry inside the graph can fix, so they're
+        # caught here and mapped to a 400 instead of letting the graph write
+        # an all-null "Ready" analysis.json (see app/analysis/nodes.py's
+        # _complete_with_retry, which re-raises these without retrying).
+        try:
+            output = graph.invoke(state, config={"configurable": {"thread_id": source_id}})
+        except ProviderMissingError as exc:
+            return _error_response(400, "missing", str(exc))
+        except ProviderConfigError as exc:
+            return _error_response(400, "config", str(exc))
+
+    result = output["result"]
+    write_analysis(data_root, source_id, result)
+    return result

@@ -17,6 +17,35 @@
       (do.html) — investigate the real limit (agent timeout? prompt size?) and fix.
 
 ### Compromises (revisit before launch / scaling)
+- **Content analysis — source-level connections use LLM coarse-filter, not vector search**: Phase 4's claim-level
+  connection finder (new source's claims vs. the library) uses a two-phase LLM approach — cheap LLM call to shortlist
+  ~5 candidate sources from brief summaries, then a detailed LLM call comparing full claim lists only against those
+  candidates. This does not scale past a library that fits in the coarse-filter prompt's context window (roughly
+  low-hundreds of sources for a single user). CLAUDE.md's own philosophy doc already flags this as "MVP: brute-force
+  comparison; future: vector search" — the real fix is embedding-based retrieval, but that infra is already committed
+  to Phase 6 (Kuzu-based concept graph, Decision 2 in the knowledge-graph decisions doc) for the Tier-2 graph. Revisit
+  reusing that same embedding infra for Tier-1 source-level connections once Phase 6 lands, rather than building a
+  second vector store just for this.
+- **Content analysis — SqliteSaver checkpoint DB has no pruning**: `.cache/analysis_checkpoints.db`
+  (`backend/app/graph.py`) grows one thread per analyzed source forever, and the retry-only-failed-fields behavior is
+  actually driven by `analysis.json` (via `read_analysis` seeding `result` back into the graph), not by the
+  checkpointer's own persisted state — so the checkpoint DB is carrying real cost (unbounded growth, a possible
+  "database is locked" surface if two `POST /sources/{id}/analyze` calls for different sources land concurrently
+  under FastAPI's threadpool, both touching the same sqlite file) for comparatively little functional payoff. Found
+  in the Phase 4 final review. Revisit: either prune old threads periodically, or drop the checkpointer and rely on
+  `analysis.json` alone (would need to re-verify LangGraph's parallel-node execution still works without one).
+- **Content analysis — `analysis.json` writes are not atomic, no corruption guard on read**: `write_analysis`
+  (`backend/app/repositories/source_repository.py`) uses a plain `write_text`, and `read_analysis` calls
+  `AnalysisResult.model_validate_json` with no try/except. A crash mid-write would leave a truncated file that then
+  raises an uncaught `ValidationError` (500) on the next `GET /sources/{id}` or connections lookup. Low probability
+  for a single-user local tool; found in the Phase 4 final review. Revisit with a temp-file + atomic rename on write,
+  and a caught-and-return-None (or surfaced as a distinct error) on read.
+- **Content analysis — failed connections comparison is indistinguishable from "no connections found"**:
+  `find_connections` (`backend/app/analysis/connections.py`) returns `{"connections": []}` on any provider/parse
+  failure in either phase, with no `connections_error` field the way the other four analysis fields
+  (`triage_error`/`digest_error`/`critique_error`/`claims_error`) have. A UI can't tell "genuinely no connections"
+  from "the comparison call failed." Found in the Phase 4 final review. Revisit by adding a `connections_error`
+  sibling field to `AnalysisResult`.
 - **URL ingestion — hardcoded login-wall hostname list**: `LOGIN_REQUIRED_HOSTS = {"x.com", "twitter.com"}`
   (`backend/app/ingestion/fetcher.py`) is a narrow special case that conflicts with this repo's "no hardcoding, let AI
   interpret messy content" principle. Any other paywalled/login-walled site's teaser HTML is silently accepted (2xx) and
