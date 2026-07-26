@@ -1,3 +1,10 @@
+# Pydantic models for Phase 4 content analysis: the shape of analysis.json
+# (Triage, Digest, Critique, Claims, Connections) plus the sub-objects each
+# one is built from (Highlight, Concept). AnalysisResult is the top-level
+# object written to disk; its *_error fields let a field fail independently
+# without blocking the others (see the partial-failure design in
+# docs/superpowers/specs/2026-07-26-content-analysis-design.md).
+
 from typing import Literal
 
 from pydantic import BaseModel

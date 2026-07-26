@@ -1,3 +1,12 @@
+# Extracts a JSON object from a raw LLM text response. Providers return
+# plain text with no structured-output guarantee (especially the
+# CLI-subprocess strategy), so responses may be wrapped in markdown code
+# fences or padded with leading/trailing prose. This does the same
+# code-fence-stripping + first-balanced-object extraction the old inherited
+# app's parseJsonResponse did, but raises a typed error instead of
+# returning None, so analysis nodes can treat "no JSON" and "provider
+# error" the same way (see app/analysis/nodes.py's retry logic).
+
 import json
 import re
 
@@ -9,6 +18,7 @@ class NodeOutputError(Exception):
 def extract_json(text: str) -> dict:
     stripped = text.strip()
 
+    # Models sometimes wrap JSON in ```json ... ``` even when told not to.
     code_block_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", stripped)
     if code_block_match:
         stripped = code_block_match.group(1).strip()
@@ -17,6 +27,10 @@ def extract_json(text: str) -> dict:
     if start == -1:
         raise NodeOutputError(f"No JSON object found in response: {stripped[:200]!r}")
 
+    # Walk forward counting brace depth to find the matching closing brace,
+    # skipping over braces that appear inside string values (e.g. a summary
+    # that itself mentions "{braces}"). This is more robust than a regex
+    # for the last "}", which would grab trailing prose after the object.
     depth = 0
     end = None
     in_string = False
