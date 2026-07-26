@@ -1,4 +1,8 @@
+"""API request/response schemas for the /sources endpoints."""
+
 from pydantic import BaseModel
+
+from app.schemas.analysis import AnalysisResult
 
 
 class SourceCreateRequest(BaseModel):
@@ -18,3 +22,4 @@ class SourceDetailResponse(BaseModel):
     title: str
     created_at: str
     content: str
+    analysis: AnalysisResult | None = None
