@@ -19,11 +19,11 @@ Foundational vertical slice proving the new architecture end-to-end: Python/Fast
 - Architecture: `docs/superpowers/specs/2026-07-25-backend-architecture-design.md` — **the overarching decision**: Next.js becomes 100% frontend; Python/FastAPI/LangGraph becomes the entire backend (file storage, AI, analysis, knowledge graph). CLI-subprocess and API-key strategies both live inside the Python backend, not split across runtimes.
 - Plan: `docs/superpowers/plans/2026-07-25-backend-foundation.md`
 
-## Phase 2 — AI Provider Abstraction (IMPLEMENTATION DONE, PR OPEN — not yet merged)
+## Phase 2 — AI Provider Abstraction (DONE, merged to main)
 
 Single text-completion capability (`prompt in → text out`) proven through both invocation strategies: CLI-subprocess (`claude`/`codex`, no API key — preserves the original "bring your own agent" pitch) and direct API key (Anthropic/OpenAI SDKs). This is the foundation every later AI-touching phase depends on.
 
-All 9 implementation tasks complete via subagent-driven-development: `Provider` interface + 4 concrete providers (`cli_claude`, `cli_codex`, `api_anthropic`, `api_openai`), `config_repository`, provider `factory`, and `POST /agent/complete`. 49/49 backend tests passing; final whole-branch review approved with no Critical/Important findings; manually verified end-to-end against a real OpenAI key. Branch `ai-provider-abstraction` (11 commits ahead of `main`) is pushed to `origin`; PR not yet opened (create at https://github.com/AkiraWinds/Asterism/pull/new/ai-provider-abstraction).
+All 9 implementation tasks complete via subagent-driven-development: `Provider` interface + 4 concrete providers (`cli_claude`, `cli_codex`, `api_anthropic`, `api_openai`), `config_repository`, provider `factory`, and `POST /agent/complete`. 49/49 backend tests passing; final whole-branch review approved with no Critical/Important findings; manually verified end-to-end against a real OpenAI key. Merged into `main`.
 
 Known deferred compromise (see `todo.md`): API-key providers hardcode model name/`max_tokens`, no per-request model selection yet.
 
@@ -31,11 +31,21 @@ Known deferred compromise (see `todo.md`): API-key providers hardcode model name
 - Plan: `docs/superpowers/plans/2026-07-25-ai-provider-abstraction.md`
 - Status doc: `docs/updates/sessions/7-25-ai-provider-abstraction-scoping.md`
 
-## Phase 3 — Content Ingestion / Extraction
+## Phase 3 — Content Ingestion / Extraction (DONE, merged to main)
 
-Fetching and parsing raw content (URLs, HTML, plain text) into clean text ready for analysis — the Python-side equivalent of the old app's `content.ts`. Not yet scoped/spec'd.
+Fetching and parsing raw content (URLs, HTML, plain text) into clean text ready for analysis — the Python-side equivalent of the old app's `content.ts`.
 
-**Scope note**: per Decision 4 in the knowledge-graph decisions doc, MVP covers prose-like sources only (web articles, PDFs, plain notes, meeting transcripts). GitHub repos and other structured/code sources are explicitly out of scope until the core highlight → concept-graph loop is validated on prose.
+`POST /sources` now accepts a `url` field: `app/ingestion/fetcher.py` (fetch + login-wall detection), `title.py` (og:title → `<title>` → hostname), `extractor.py` (`trafilatura` first, AI-fallback via Phase 2's provider abstraction for thin extractions), and `create_source_from_url` writing `meta.json`/`original.html`/`content.md`. Branch `content-ingestion` (10 commits ahead of `main`), pushed to `origin`, PR #2 open.
+
+Parallax-reviewed; 4 real bugs found and fixed on the branch: non-atomic multi-file writes could leave a permanently-stuck "Processing" entry (now guarded, writes `error.txt` on failure), a redirect chain could bypass the login-wall host check (now re-checked against the post-redirect URL), a whitespace-only `<title>` tag skipped the hostname fallback (now guarded), and ingestion error paths had zero logging (now log url + exception type, no content). 85/85 backend tests passing.
+
+Known deferred compromises (see `todo.md`): hardcoded login-wall hostname list, `analysis.json` never written (pre-existing gap, not introduced by this phase), no dedicated adversarial review yet of the AI-fallback prompt-injection surface, no SSRF guard/response-size cap/duplicate-URL detection/background-job model.
+
+**Scope note**: per Decision 4 in the knowledge-graph decisions doc, MVP covers prose-like sources only (web articles, PDFs, plain notes, meeting transcripts). GitHub repos and other structured/code sources are explicitly out of scope until the core highlight → concept-graph loop is validated on prose. PDF/meeting-transcript ingestion is not yet implemented — only URL/HTML.
+
+- Spec: `docs/superpowers/specs/2026-07-25-content-ingestion-design.md`
+- Plan: `docs/superpowers/plans/2026-07-25-content-ingestion.md`
+- Status doc: `docs/updates/sessions/7-26-content-ingestion-parallax-followup.md`
 
 ## Phase 4 — Content Analysis (Redesigned Prompts)
 

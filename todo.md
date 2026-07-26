@@ -17,6 +17,15 @@
       (do.html) — investigate the real limit (agent timeout? prompt size?) and fix.
 
 ### Compromises (revisit before launch / scaling)
+- **Content analysis — source-level connections use LLM coarse-filter, not vector search**: Phase 4's claim-level
+  connection finder (new source's claims vs. the library) uses a two-phase LLM approach — cheap LLM call to shortlist
+  ~5 candidate sources from brief summaries, then a detailed LLM call comparing full claim lists only against those
+  candidates. This does not scale past a library that fits in the coarse-filter prompt's context window (roughly
+  low-hundreds of sources for a single user). CLAUDE.md's own philosophy doc already flags this as "MVP: brute-force
+  comparison; future: vector search" — the real fix is embedding-based retrieval, but that infra is already committed
+  to Phase 6 (Kuzu-based concept graph, Decision 2 in the knowledge-graph decisions doc) for the Tier-2 graph. Revisit
+  reusing that same embedding infra for Tier-1 source-level connections once Phase 6 lands, rather than building a
+  second vector store just for this.
 - **URL ingestion — hardcoded login-wall hostname list**: `LOGIN_REQUIRED_HOSTS = {"x.com", "twitter.com"}`
   (`backend/app/ingestion/fetcher.py`) is a narrow special case that conflicts with this repo's "no hardcoding, let AI
   interpret messy content" principle. Any other paywalled/login-walled site's teaser HTML is silently accepted (2xx) and
