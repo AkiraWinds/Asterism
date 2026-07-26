@@ -47,11 +47,25 @@ Known deferred compromises (see `todo.md`): hardcoded login-wall hostname list, 
 - Plan: `docs/superpowers/plans/2026-07-25-content-ingestion.md`
 - Status doc: `docs/updates/sessions/7-26-content-ingestion-parallax-followup.md`
 
-## Phase 4 — Content Analysis (Redesigned Prompts)
+## Phase 4 — Content Analysis (DONE, redesigned prompts)
 
-Triage card, digestion, critique, and claims extraction — parity with what the inherited `claude.ts`/`prompts.ts` did, but with prompts **redesigned from scratch** in Python, not ported. Also covers source-level connections (today's Knowledge Galaxy). Not yet scoped/spec'd.
+`POST /sources/{id}/analyze` turns a stored source's `content.md` into `analysis.json`: Triage, Digestion,
+Critique, Claims (atomic, source-quote-anchored), and claim-level source-to-source Connections (redundant/
+contradicts/related) — implemented as a LangGraph fan-out/fan-in pipeline (`app/graph.py` composing
+`app/analysis/graph.py` as a subgraph), checkpointed via `SqliteSaver` so a retry only recomputes fields that
+previously failed. `GET /sources/{id}` now includes the `analysis` field. 129/129 backend tests passing.
 
-Builds directly on Phase 2 (uses the provider abstraction to actually call the LLM) and Phase 3 (needs extracted content to analyze).
+Prompt content was drafted and manually validated against `sample_data`'s demo articles before implementation
+(one real ambiguity found and fixed: highlight `text` may paraphrase, `source_quote` must be an exact substring).
+
+Known deferred compromise (see `todo.md`): the connections coarse-filter is LLM-based, not vector-search-based —
+won't scale past a library that fits in one prompt's context window; revisit once Phase 6's Kuzu/embedding
+infrastructure exists.
+
+- Spec: `docs/superpowers/specs/2026-07-26-content-analysis-design.md`
+- Plan: `docs/superpowers/plans/2026-07-26-content-analysis.md`
+- Decisions: `docs/updates/plans/7-26-phase4-content-analysis-decisions.md`
+- Prompt validation: `docs/updates/plans/7-26-phase4-prompt-validation.md`
 
 ## Phase 5 — Chat / Copilot
 
