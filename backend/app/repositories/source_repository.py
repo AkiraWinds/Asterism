@@ -1,9 +1,13 @@
+"""Source CRUD and analysis read/write operations for the library."""
+
 import json
 import shutil
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from app.schemas.analysis import AnalysisResult
 
 
 @dataclass
@@ -112,3 +116,67 @@ def get_source(data_root: Path, source_id: str) -> SourceRecord | None:
         created_at=meta["created_at"],
         content=body,
     )
+
+
+def write_analysis(data_root: Path, source_id: str, result: AnalysisResult) -> None:
+    """Write an AnalysisResult to analysis.json in the source directory."""
+    source_dir = data_root / "library" / source_id
+    (source_dir / "analysis.json").write_text(result.model_dump_json(indent=2))
+
+
+def read_analysis(data_root: Path, source_id: str) -> AnalysisResult | None:
+    """Read and parse analysis.json if it exists, else return None."""
+    analysis_path = data_root / "library" / source_id / "analysis.json"
+    if not analysis_path.exists():
+        return None
+    return AnalysisResult.model_validate_json(analysis_path.read_text())
+
+
+def list_analysis_summaries(data_root: Path, exclude_id: str) -> list[dict]:
+    """Return list of analyzed sources with their id, title, and digest summary.
+
+    Filters to include only sources that have both meta.json and analysis.json,
+    and excludes the source with ID matching exclude_id.
+    """
+    library_dir = data_root / "library"
+    if not library_dir.exists():
+        return []
+
+    summaries = []
+    for source_dir in library_dir.iterdir():
+        if source_dir.name == exclude_id:
+            continue
+        meta_path = source_dir / "meta.json"
+        analysis_path = source_dir / "analysis.json"
+        if not meta_path.exists() or not analysis_path.exists():
+            continue
+        meta = json.loads(meta_path.read_text())
+        analysis = AnalysisResult.model_validate_json(analysis_path.read_text())
+        # Skip if no digest was analyzed
+        if analysis.digest is None:
+            continue
+        summaries.append({"id": meta["id"], "title": meta["original_title"], "summary": analysis.digest.summary})
+    return summaries
+
+
+def list_analysis_claims(data_root: Path, source_ids: list[str]) -> list[dict]:
+    """Return list of sources with claims for each ID in source_ids.
+
+    For each requested source_id, includes it only if it has both meta.json and
+    analysis.json with at least one claim. Returns dicts with id, title, and claims.
+    """
+    library_dir = data_root / "library"
+    results = []
+    for source_id in source_ids:
+        source_dir = library_dir / source_id
+        meta_path = source_dir / "meta.json"
+        analysis_path = source_dir / "analysis.json"
+        if not meta_path.exists() or not analysis_path.exists():
+            continue
+        meta = json.loads(meta_path.read_text())
+        analysis = AnalysisResult.model_validate_json(analysis_path.read_text())
+        # Skip sources with no claims
+        if not analysis.claims:
+            continue
+        results.append({"id": meta["id"], "title": meta["original_title"], "claims": analysis.claims})
+    return results

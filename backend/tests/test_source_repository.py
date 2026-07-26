@@ -4,7 +4,16 @@ from unittest.mock import patch
 
 import pytest
 
-from app.repositories.source_repository import create_source, get_source, list_sources
+from app.repositories.source_repository import (
+    create_source,
+    get_source,
+    list_sources,
+    list_analysis_claims,
+    list_analysis_summaries,
+    read_analysis,
+    write_analysis,
+)
+from app.schemas.analysis import AnalysisResult, Claim, Digest
 
 
 def test_create_source_writes_meta_and_content(tmp_path: Path):
@@ -128,3 +137,60 @@ def test_create_source_from_url_is_retrievable_via_get_source(tmp_path: Path):
     assert fetched is not None
     assert fetched.title == "Example Article"
     assert "Extracted markdown body" in fetched.content
+
+
+def test_write_then_read_analysis(tmp_path: Path):
+    record = create_source(tmp_path, title="Test", content="Body")
+    result = AnalysisResult(
+        digest=Digest(summary="A summary."),
+        connections=[],
+        analyzed_at="2026-07-26T12:00:00+00:00",
+    )
+
+    write_analysis(tmp_path, record.id, result)
+    loaded = read_analysis(tmp_path, record.id)
+
+    assert loaded is not None
+    assert loaded.digest.summary == "A summary."
+
+
+def test_read_analysis_returns_none_when_missing(tmp_path: Path):
+    record = create_source(tmp_path, title="Test", content="Body")
+    assert read_analysis(tmp_path, record.id) is None
+
+
+def test_list_analysis_summaries_excludes_given_id_and_unanalyzed_sources(tmp_path: Path):
+    analyzed = create_source(tmp_path, title="Analyzed", content="Body")
+    unanalyzed = create_source(tmp_path, title="Unanalyzed", content="Body")
+    write_analysis(
+        tmp_path,
+        analyzed.id,
+        AnalysisResult(digest=Digest(summary="Summary of analyzed."), analyzed_at="2026-07-26T12:00:00+00:00"),
+    )
+
+    summaries = list_analysis_summaries(tmp_path, exclude_id="does-not-matter")
+
+    ids = {s["id"] for s in summaries}
+    assert analyzed.id in ids
+    assert unanalyzed.id not in ids
+
+    summaries_excluding_analyzed = list_analysis_summaries(tmp_path, exclude_id=analyzed.id)
+    assert analyzed.id not in {s["id"] for s in summaries_excluding_analyzed}
+
+
+def test_list_analysis_claims_returns_only_requested_ids_with_claims(tmp_path: Path):
+    source = create_source(tmp_path, title="Has Claims", content="Body")
+    write_analysis(
+        tmp_path,
+        source.id,
+        AnalysisResult(
+            claims=[Claim(id="claim1", text="X is true", type="factual", source_quote="X")],
+            analyzed_at="2026-07-26T12:00:00+00:00",
+        ),
+    )
+
+    results = list_analysis_claims(tmp_path, [source.id, "nonexistent-id"])
+
+    assert len(results) == 1
+    assert results[0]["id"] == source.id
+    assert results[0]["claims"][0].text == "X is true"
