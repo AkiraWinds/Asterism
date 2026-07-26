@@ -80,6 +80,12 @@ class TestExtractOGTitle:
         title = extract_title(html, "https://example.com")
         assert title == "OG Title"
 
+    def test_whitespace_only_title_tag_falls_back_to_hostname(self):
+        """Test that a whitespace-only <title> doesn't win over the hostname fallback."""
+        html = "<title>   </title>"
+        title = extract_title(html, "https://example.com/some/path")
+        assert title == "example.com"
+
     def test_fallback_to_hostname(self):
         """Test fallback to hostname when no og:title or title tag present."""
         html = "<p>Some content</p>"

@@ -17,6 +17,34 @@
       (do.html) — investigate the real limit (agent timeout? prompt size?) and fix.
 
 ### Compromises (revisit before launch / scaling)
+- **URL ingestion — hardcoded login-wall hostname list**: `LOGIN_REQUIRED_HOSTS = {"x.com", "twitter.com"}`
+  (`backend/app/ingestion/fetcher.py`) is a narrow special case that conflicts with this repo's "no hardcoding, let AI
+  interpret messy content" principle. Any other paywalled/login-walled site's teaser HTML is silently accepted (2xx) and
+  persisted as the immutable `original.html`, with no error signal. The real fix (AI-detected login walls from page content)
+  is a bigger feature than a same-PR patch — revisit once ingestion has a general "low-confidence capture" signal.
+- **URL ingestion — `analysis.json` is never written**: neither `create_source` nor `create_source_from_url`
+  (`backend/app/repositories/source_repository.py`) write `analysis.json`, so per CLAUDE.md's own file-existence status
+  model every source reads as permanently "Processing" (never "Ready") until a separate analysis step exists. Pre-existing
+  gap, not introduced by content ingestion — revisit once the Digestion/Critique/Claims analysis pipeline is built.
+- **URL ingestion — prompt-injection surface in the AI extraction fallback**: `extract_content`'s AI-fallback path
+  (`backend/app/ingestion/extractor.py`) pipes up to 120k chars of raw, attacker/website-controlled HTML into a prompt sent
+  via subprocess to the user's configured CLI agent. Flagged independently by 3/4 Parallax review dimensions on PR #2.
+  Needs a dedicated follow-up review of whether the CLI sandbox/tool-restriction flags actually hold under adversarial
+  page content — not a same-PR fix.
+- **URL ingestion — no SSRF guard beyond the login-host check**: `http://169.254.169.254/...` and `http://localhost:8000`
+  pass through `fetch_url` untouched. Low severity given the single-user/local-first threat model; revisit if ingestion is
+  ever exposed to untrusted multi-tenant use.
+- **URL ingestion — no response-size cap**: full HTML body is buffered in memory and written whole to `original.html`,
+  no `Content-Length` precheck or streaming limit.
+- **URL ingestion — no ingestion-specific timeout / background job model**: bounded at 600s by pre-existing CLI-provider
+  code but wired synchronously into `POST /sources`. Ties into the existing "long articles can fail to process" item above.
+- **URL ingestion — no duplicate-URL detection**: every `POST /sources {"url": ...}` re-runs fetch+extract, including the
+  slow AI-fallback path, even for an identical repeated request.
+- **URL ingestion — minor error-handling inconsistencies**: URL-ingestion failures return `{error_type, message}`
+  (`AgentErrorResponse`, originally modeled for the unrelated `/agent/complete` endpoint) while other 400/404s in the same
+  router raise plain `HTTPException`; `title=""` is rejected but `content=""` is still accepted; `str(exc)` for
+  `ConfigError`/provider errors is returned verbatim to the client (interpolates the absolute `data_root` path). No current
+  frontend caller depends on any of these — unify before one is wired up.
 - **Backend AI provider abstraction — no model selection for API-key strategy**: `AnthropicApiProvider`/`OpenAiApiProvider`
   (`backend/app/providers/api_anthropic.py`, `api_openai.py`) hardcode `MODEL` (`claude-sonnet-4-5`, `gpt-4o`) and `MAX_TOKENS`
   constants with no config override. Fine for the single-capability MVP pass (see

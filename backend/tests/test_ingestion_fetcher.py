@@ -47,6 +47,14 @@ def test_fetch_url_raises_login_required_for_twitter_dot_com():
     mock_ctor.assert_not_called()
 
 
+def test_fetch_url_raises_login_required_when_redirected_to_x_dot_com():
+    response = MagicMock(status_code=200, text="<html>login wall</html>")
+    response.url = httpx.URL("https://x.com/someone/status/123")
+    with patch("app.ingestion.fetcher.httpx.Client", return_value=_mock_client(response=response)):
+        with pytest.raises(LoginRequiredError):
+            fetch_url("https://t.co/shortlink")
+
+
 def test_fetch_url_raises_blocked_on_403():
     response = MagicMock(status_code=403, text="")
     with patch("app.ingestion.fetcher.httpx.Client", return_value=_mock_client(response=response)):

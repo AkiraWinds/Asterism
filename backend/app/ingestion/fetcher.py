@@ -26,13 +26,16 @@ class FetchTimeoutError(FetchError):
     pass
 
 
-def fetch_url(url: str) -> str:
-    hostname = (httpx.URL(url).host or "").lower()
+def _check_login_required(hostname: str) -> None:
     if hostname in LOGIN_REQUIRED_HOSTS:
         raise LoginRequiredError(
             f"{hostname} requires login to view content. Please capture it with the "
             "Chrome Extension while logged in."
         )
+
+
+def fetch_url(url: str) -> str:
+    _check_login_required((httpx.URL(url).host or "").lower())
 
     try:
         with httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True) as client:
@@ -51,6 +54,10 @@ def fetch_url(url: str) -> str:
         raise FetchTimeoutError(f"Request to {url} timed out after {TIMEOUT_SECONDS}s") from exc
     except httpx.RequestError as exc:
         raise FetchError(f"Failed to fetch {url}: {exc}") from exc
+
+    # Re-check after redirects: LOGIN_REQUIRED_HOSTS must not be bypassable by a
+    # redirect chain (e.g. a shortlink landing on x.com).
+    _check_login_required((response.url.host or "").lower())
 
     if response.status_code == 403:
         raise FetchBlockedError("This site blocks automated requests.")

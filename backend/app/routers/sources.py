@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -32,6 +34,7 @@ from app.schemas.source import (
 )
 
 router = APIRouter(prefix="/sources", tags=["sources"])
+logger = logging.getLogger(__name__)
 
 
 def _error_response(status_code: int, error_type: str, message: str) -> JSONResponse:
@@ -49,12 +52,16 @@ def create_source_endpoint(payload: SourceCreateRequest):
         try:
             html = fetch_url(payload.url)
         except LoginRequiredError as exc:
+            logger.warning("Ingestion login_required url=%s", payload.url)
             return _error_response(400, "login_required", str(exc))
         except FetchBlockedError as exc:
+            logger.warning("Ingestion blocked url=%s", payload.url)
             return _error_response(400, "blocked", str(exc))
         except FetchTimeoutError as exc:
+            logger.warning("Ingestion fetch timeout url=%s", payload.url)
             return _error_response(504, "timeout", str(exc))
         except FetchError as exc:
+            logger.warning("Ingestion fetch error url=%s type=%s", payload.url, type(exc).__name__)
             return _error_response(502, "error", str(exc))
 
         title = extract_title(html, payload.url)
@@ -68,11 +75,19 @@ def create_source_endpoint(payload: SourceCreateRequest):
         except ProviderConfigError as exc:
             return _error_response(400, "config", str(exc))
         except ProviderTimeoutError as exc:
+            logger.warning("Ingestion extraction provider timeout url=%s", payload.url)
             return _error_response(504, "timeout", str(exc))
         except ProviderError as exc:
+            logger.warning(
+                "Ingestion extraction provider error url=%s type=%s", payload.url, type(exc).__name__
+            )
             return _error_response(502, "error", str(exc))
 
-        record = create_source_from_url(data_root, payload.url, title, html, content)
+        try:
+            record = create_source_from_url(data_root, payload.url, title, html, content)
+        except OSError as exc:
+            logger.exception("Failed to persist source for url=%s", payload.url)
+            return _error_response(500, "storage", f"Failed to save source: {exc}")
         return SourceDetailResponse(
             id=record.id, title=record.title, created_at=record.created_at, content=record.content
         )

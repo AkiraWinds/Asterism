@@ -1,4 +1,5 @@
 import json
+import shutil
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -47,9 +48,19 @@ def create_source_from_url(
         "source_url": url,
         "original_file": "original.html",
     }
-    (source_dir / "meta.json").write_text(json.dumps(meta, indent=2))
-    (source_dir / "original.html").write_text(html)
-    (source_dir / "content.md").write_text(f'---\ntitle: {json.dumps(title)}\n---\n\n{content}\n')
+    try:
+        (source_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+        (source_dir / "original.html").write_text(html)
+        (source_dir / "content.md").write_text(f'---\ntitle: {json.dumps(title)}\n---\n\n{content}\n')
+    except OSError as exc:
+        # A partial write (e.g. disk full mid-sequence) must not leave a directory
+        # that only has meta.json — per the file-existence status model that reads
+        # as "Processing" forever with no way to surface the failure.
+        try:
+            (source_dir / "error.txt").write_text(f"Failed to write source files: {exc}")
+        except OSError:
+            shutil.rmtree(source_dir, ignore_errors=True)
+        raise
 
     return SourceRecord(id=source_id, title=title, created_at=created_at, content=content)
 

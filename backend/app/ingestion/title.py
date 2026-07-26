@@ -29,6 +29,8 @@ def extract_title(html: str, url: str) -> str:
 
     title_match = TITLE_TAG_PATTERN.search(html)
     if title_match:
-        return title_match.group(1).strip()
+        title_text = title_match.group(1).strip()
+        if title_text:
+            return title_text
 
     return urlparse(url).hostname or url

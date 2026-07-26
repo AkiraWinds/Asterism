@@ -1,5 +1,8 @@
 import json
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from app.repositories.source_repository import create_source, get_source, list_sources
 
@@ -77,6 +80,36 @@ def test_create_source_from_url_writes_meta_with_url_fields(tmp_path: Path):
     assert (source_dir / "original.html").read_text() == "<html><body>raw html</body></html>"
     assert record.title == "Example Article"
     assert record.content == "Extracted markdown body"
+
+
+def test_create_source_from_url_writes_error_txt_on_partial_write_failure(tmp_path: Path):
+    from app.repositories.source_repository import create_source_from_url
+
+    original_write_text = Path.write_text
+    call_count = {"n": 0}
+
+    def flaky_write_text(self, *args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 2:  # fail on original.html, after meta.json succeeded
+            raise OSError("disk full")
+        return original_write_text(self, *args, **kwargs)
+
+    with patch.object(Path, "write_text", flaky_write_text):
+        with pytest.raises(OSError):
+            create_source_from_url(
+                tmp_path,
+                url="https://example.com/article",
+                title="Example Article",
+                html="<html>raw</html>",
+                content="Extracted markdown body",
+            )
+
+    source_dirs = list((tmp_path / "library").iterdir())
+    assert len(source_dirs) == 1
+    source_dir = source_dirs[0]
+    assert (source_dir / "meta.json").exists()
+    assert (source_dir / "error.txt").exists()
+    assert "disk full" in (source_dir / "error.txt").read_text()
 
 
 def test_create_source_from_url_is_retrievable_via_get_source(tmp_path: Path):
