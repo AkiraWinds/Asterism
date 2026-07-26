@@ -8,7 +8,7 @@ docs/superpowers/specs/2026-07-26-content-analysis-design.md).
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Highlight(BaseModel):
@@ -25,12 +25,15 @@ class Concept(BaseModel):
 
 
 class Triage(BaseModel):
-    score: int
+    # Prompt asks the model for 0-100 scores and a non-negative read time; since
+    # this is untrusted model output derived from arbitrary web content, enforce
+    # the bounds here rather than trusting the prompt to be followed.
+    score: int = Field(ge=0, le=100)
     action: Literal["must_read", "worth_reading", "skim", "summary_only", "skip"]
     reason: str
-    read_time_minutes: int
-    density: int
-    originality: int
+    read_time_minutes: int = Field(ge=0)
+    density: int = Field(ge=0, le=100)
+    originality: int = Field(ge=0, le=100)
 
 
 class Digest(BaseModel):

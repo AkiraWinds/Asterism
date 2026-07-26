@@ -3,8 +3,10 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
+import pytest
+
 from app.main import app
-from app.providers.base import ProviderError
+from app.providers.base import ProviderConfigError, ProviderError, ProviderMissingError
 
 client = TestClient(app)
 
@@ -88,6 +90,34 @@ def test_analyze_partial_failure_returns_200_with_null_field(tmp_path: Path, mon
     assert body["triage"]["score"] == 78
     assert body["claims"] is None
     assert body["claims_error"] is not None
+
+
+@pytest.mark.parametrize(
+    ("error_cls", "expected_error_type"),
+    [(ProviderMissingError, "missing"), (ProviderConfigError, "config")],
+)
+def test_analyze_provider_setup_error_returns_400_and_writes_no_analysis(
+    tmp_path: Path, monkeypatch, error_cls, expected_error_type
+):
+    # A provider that's unusable (CLI not on PATH, bad API key) is a pre-graph
+    # "hard stop" per spec: it must be reported as a 400, and must NOT result
+    # in an all-null analysis.json being written (which would read as "Ready"
+    # under this repo's file-existence status model).
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    (tmp_path / "config.json").write_text('{"strategy": "api-key", "provider": "anthropic", "api_key": "fake"}')
+    source_id = _create_source()
+
+    provider = MagicMock()
+    provider.complete.side_effect = error_cls("provider unusable")
+    monkeypatch.setattr("app.analysis.nodes.build_provider", lambda config, data_root: provider)
+
+    response = client.post(f"/sources/{source_id}/analyze")
+
+    assert response.status_code == 400
+    assert response.json()["error_type"] == expected_error_type
+
+    analysis_path = tmp_path / "library" / source_id / "analysis.json"
+    assert not analysis_path.exists()
 
 
 def test_analyze_missing_config_returns_400(tmp_path: Path, monkeypatch):

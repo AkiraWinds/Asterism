@@ -10,7 +10,7 @@ from app.analysis.prompts import (
     build_triage_prompt,
 )
 from app.analysis.state import AnalysisState
-from app.providers.base import ProviderError
+from app.providers.base import ProviderConfigError, ProviderError, ProviderMissingError
 from app.providers.factory import build_provider
 from app.schemas.analysis import Claim, Concept, Critique, Digest, Highlight, Triage
 
@@ -26,6 +26,11 @@ def _complete_with_retry(state: AnalysisState, prompt: str) -> dict:
         try:
             response = provider.complete(prompt)
             return extract_json(response)
+        except (ProviderMissingError, ProviderConfigError):
+            # Config-level failures (CLI not on PATH, bad API key) can never succeed on
+            # retry without the user fixing their setup - propagate immediately instead
+            # of burning retry attempts, so the router can map it to a hard-stop 400.
+            raise
         except (ProviderError, NodeOutputError) as exc:
             # Retry on error, store the error to report if all attempts fail
             last_error = str(exc)

@@ -2,7 +2,10 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from app.analysis.nodes import run_claims, run_critique, run_digest, run_triage
+from app.providers.base import ProviderConfigError, ProviderMissingError
 from app.repositories.config_repository import AgentConfig
 
 
@@ -55,6 +58,21 @@ def test_run_triage_retries_once_then_returns_null_on_persistent_failure(monkeyp
     assert result["triage"] is None
     assert result["triage_error"] is not None
     assert provider.complete.call_count == 2
+
+
+@pytest.mark.parametrize("error_cls", [ProviderMissingError, ProviderConfigError])
+def test_run_triage_propagates_provider_missing_or_config_error_without_retry(monkeypatch, error_cls):
+    # These are config-level failures (e.g. CLI not on PATH, bad API key) that
+    # retrying can never fix, so they must propagate uncaught out of the node
+    # (instead of being swallowed into a null triage) and must NOT be retried.
+    provider = MagicMock()
+    provider.complete.side_effect = error_cls("provider unusable")
+    monkeypatch.setattr("app.analysis.nodes.build_provider", lambda config, data_root: provider)
+
+    with pytest.raises(error_cls):
+        run_triage(_base_state())
+
+    assert provider.complete.call_count == 1
 
 
 def test_run_digest_assigns_ids_and_carries_source_quote(monkeypatch):

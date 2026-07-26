@@ -20,7 +20,6 @@ def _analyze_node(state: SystemState) -> dict:
         "source_id": state["source_id"],
         "title": state["title"],
         "content": state["content"],
-        "source_url": state.get("source_url"),
         "data_root": state["data_root"],
         "config": state["config"],
     }

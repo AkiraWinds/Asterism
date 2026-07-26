@@ -11,7 +11,6 @@ class AnalysisState(TypedDict, total=False):
     source_id: str
     title: str
     content: str
-    source_url: str | None
     data_root: Path
     config: AgentConfig
     triage: Triage | None

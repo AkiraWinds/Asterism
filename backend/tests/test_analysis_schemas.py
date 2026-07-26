@@ -37,6 +37,30 @@ def test_triage_rejects_invalid_action():
         )
 
 
+def test_triage_rejects_out_of_range_score():
+    with pytest.raises(ValidationError):
+        Triage(
+            score=150,
+            action="worth_reading",
+            reason="x",
+            read_time_minutes=6,
+            density=70,
+            originality=55,
+        )
+
+
+def test_triage_rejects_negative_read_time():
+    with pytest.raises(ValidationError):
+        Triage(
+            score=78,
+            action="worth_reading",
+            reason="x",
+            read_time_minutes=-1,
+            density=70,
+            originality=55,
+        )
+
+
 def test_highlight_requires_source_quote():
     highlight = Highlight(id="h1", text="AI reads first", type="insight", source_quote="the AI reads first")
     assert highlight.source_quote == "the AI reads first"

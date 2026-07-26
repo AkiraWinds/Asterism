@@ -166,14 +166,24 @@ def analyze_source_endpoint(source_id: str):
             "source_id": source_id,
             "title": record.title,
             "content": record.content,
-            "source_url": None,
             "data_root": data_root,
             "config": config,
             "result": existing,
         }
         # thread_id=source_id ties this run's checkpoints to the source, so a
         # later retry for the same source resumes from its own saved state.
-        output = graph.invoke(state, config={"configurable": {"thread_id": source_id}})
+        # ProviderMissingError/ProviderConfigError are pre-graph "hard stop"
+        # failures per spec: they're config-level problems (CLI not on PATH,
+        # bad API key) that no retry inside the graph can fix, so they're
+        # caught here and mapped to a 400 instead of letting the graph write
+        # an all-null "Ready" analysis.json (see app/analysis/nodes.py's
+        # _complete_with_retry, which re-raises these without retrying).
+        try:
+            output = graph.invoke(state, config={"configurable": {"thread_id": source_id}})
+        except ProviderMissingError as exc:
+            return _error_response(400, "missing", str(exc))
+        except ProviderConfigError as exc:
+            return _error_response(400, "config", str(exc))
 
     result = output["result"]
     write_analysis(data_root, source_id, result)
