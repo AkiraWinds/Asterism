@@ -1,11 +1,12 @@
-# Extracts a JSON object from a raw LLM text response. Providers return
-# plain text with no structured-output guarantee (especially the
-# CLI-subprocess strategy), so responses may be wrapped in markdown code
-# fences or padded with leading/trailing prose. This does the same
-# code-fence-stripping + first-balanced-object extraction the old inherited
-# app's parseJsonResponse did, but raises a typed error instead of
-# returning None, so analysis nodes can treat "no JSON" and "provider
-# error" the same way (see app/analysis/nodes.py's retry logic).
+"""Extracts a JSON object from a raw LLM text response. Providers return
+plain text with no structured-output guarantee (especially the
+CLI-subprocess strategy), so responses may be wrapped in markdown code
+fences or padded with leading/trailing prose. This does the same
+code-fence-stripping + first-balanced-object extraction the old inherited
+app's parseJsonResponse did, but raises a typed error instead of
+returning None, so analysis nodes can treat "no JSON" and "provider
+error" the same way (see app/analysis/nodes.py's retry logic).
+"""
 
 import json
 import re

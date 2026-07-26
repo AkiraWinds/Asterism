@@ -1,7 +1,9 @@
-# Prompt template builders for content analysis tasks.
-# Functions construct LLM prompts for triage, digest, critique, claims extraction,
-# and cross-source comparison. Each function takes source metadata/content and returns
-# a complete prompt string with explicit output format instructions (JSON).
+"""Prompt template builders for content analysis tasks.
+
+Functions construct LLM prompts for triage, digest, critique, claims extraction,
+and cross-source comparison. Each function takes source metadata/content and returns
+a complete prompt string with explicit output format instructions (JSON).
+"""
 
 from app.schemas.analysis import Claim
 
