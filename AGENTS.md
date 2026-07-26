@@ -231,3 +231,9 @@ Do not write full agent prompts/responses to disk during normal use. Enable `SEC
 
 ### Sample Data Seeds Automatically (2026-06-18)
 First-run sample data is a product behavior, not an onboarding command. `sample_data/` should auto-copy only into an empty user data root and must never overwrite existing user files. Seeded agent instructions should use `AGENTS.md` as canonical, with `CLAUDE.md` as a symlink for compatibility.
+
+### Host-Based Security Checks Must Survive Redirects (2026-07-26)
+Any check keyed on a URL's hostname (login-wall detection, allow/blocklists, auth gates) that runs *before* a request which can itself follow redirects is bypassable — the check has to be re-evaluated against the final URL too, not just the input URL. Caught in code review (`fetch_url` in `backend/app/ingestion/fetcher.py` checked `LOGIN_REQUIRED_HOSTS` pre-redirect while running with `follow_redirects=True`); the bug shipped because the only test asserted `follow_redirects=True` as a constructor kwarg rather than actually simulating a redirect. For any behavior gated on a flag like this, write a test that exercises the behavior the flag enables, not just that the flag is set.
+
+### File-Existence-Inferred Status Makes Multi-File Writes a Correctness Boundary (2026-07-26)
+Because this repo infers source status (`Processing`/`Ready`/`Failed`) from which files exist rather than a stored field, any code that writes the `meta.json`/`original.*`/`content.md` triad must treat that sequence as a mini-transaction: guard it, and on failure leave a signal (`error.txt`) rather than a partial directory that looks identical to "still working." Found via `create_source_from_url` having three unguarded sequential `write_text()` calls with no cleanup on failure. Apply the same reflex to any future writer into this file-existence model (e.g. `analysis.json` generation).

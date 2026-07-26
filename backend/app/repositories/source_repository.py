@@ -1,4 +1,5 @@
 import json
+import shutil
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -26,7 +27,40 @@ def create_source(data_root: Path, title: str, content: str) -> SourceRecord:
         "original_title": title,
     }
     (source_dir / "meta.json").write_text(json.dumps(meta, indent=2))
-    (source_dir / "content.md").write_text(f'---\ntitle: "{title}"\n---\n\n{content}\n')
+    (source_dir / "content.md").write_text(f'---\ntitle: {json.dumps(title)}\n---\n\n{content}\n')
+
+    return SourceRecord(id=source_id, title=title, created_at=created_at, content=content)
+
+
+def create_source_from_url(
+    data_root: Path, url: str, title: str, html: str, content: str
+) -> SourceRecord:
+    source_id = uuid.uuid4().hex[:12]
+    created_at = datetime.now(timezone.utc).isoformat()
+    source_dir = data_root / "library" / source_id
+    source_dir.mkdir(parents=True, exist_ok=True)
+
+    meta = {
+        "id": source_id,
+        "created_at": created_at,
+        "type": "html",
+        "original_title": title,
+        "source_url": url,
+        "original_file": "original.html",
+    }
+    try:
+        (source_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+        (source_dir / "original.html").write_text(html)
+        (source_dir / "content.md").write_text(f'---\ntitle: {json.dumps(title)}\n---\n\n{content}\n')
+    except OSError as exc:
+        # A partial write (e.g. disk full mid-sequence) must not leave a directory
+        # that only has meta.json — per the file-existence status model that reads
+        # as "Processing" forever with no way to surface the failure.
+        try:
+            (source_dir / "error.txt").write_text(f"Failed to write source files: {exc}")
+        except OSError:
+            shutil.rmtree(source_dir, ignore_errors=True)
+        raise
 
     return SourceRecord(id=source_id, title=title, created_at=created_at, content=content)
 

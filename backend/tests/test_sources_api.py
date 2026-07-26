@@ -3,6 +3,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.providers.base import ProviderError, ProviderTimeoutError
+from app.repositories.config_repository import ConfigError
 
 client = TestClient(app)
 
@@ -37,3 +39,72 @@ def test_get_missing_source_returns_404(tmp_path: Path, monkeypatch):
 
     response = client.get("/sources/does-not-exist")
     assert response.status_code == 404
+
+
+def test_create_source_from_url_success(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "app.routers.sources.fetch_url",
+        lambda url: "<html><head><title>Fetched Title</title></head><body>hi</body></html>",
+    )
+    monkeypatch.setattr("app.routers.sources.extract_content", lambda html, url, data_root: "Extracted body")
+
+    response = client.post("/sources", json={"url": "https://example.com/article"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "Fetched Title"
+    assert body["content"].strip() == "Extracted body"
+
+
+def test_create_source_from_url_login_required_returns_400(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+
+    response = client.post("/sources", json={"url": "https://x.com/someone/status/1"})
+
+    assert response.status_code == 400
+    assert response.json()["error_type"] == "login_required"
+
+
+def test_create_source_from_url_extraction_provider_timeout_returns_504(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "app.routers.sources.fetch_url",
+        lambda url: "<html><head><title>T</title></head><body>hi</body></html>",
+    )
+
+    def _raise_timeout(html, url, data_root):
+        raise ProviderTimeoutError("provider timed out")
+
+    monkeypatch.setattr("app.routers.sources.extract_content", _raise_timeout)
+
+    response = client.post("/sources", json={"url": "https://example.com/slow"})
+
+    assert response.status_code == 504
+    assert response.json()["error_type"] == "timeout"
+
+
+def test_create_source_missing_title_or_content_without_url_returns_400(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+
+    response = client.post("/sources", json={"title": "Only Title"})
+
+    assert response.status_code == 400
+
+
+def test_create_source_from_url_extraction_config_error_returns_400(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "app.routers.sources.fetch_url",
+        lambda url: "<html><head><title>T</title></head><body>hi</body></html>",
+    )
+
+    def _raise_config_error(html, url, data_root):
+        raise ConfigError("bad config")
+
+    monkeypatch.setattr("app.routers.sources.extract_content", _raise_config_error)
+
+    response = client.post("/sources", json={"url": "https://example.com/bad-config"})
+
+    assert response.status_code == 400
+    assert response.json()["error_type"] == "config"
