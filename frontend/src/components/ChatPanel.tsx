@@ -53,6 +53,17 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
           created_at: new Date().toISOString(),
         },
       ]);
+    } catch (err) {
+      setTurns((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: err instanceof Error ? err.message : "Failed to send message",
+          attached_highlight: null,
+          truncated: true,
+          created_at: new Date().toISOString(),
+        },
+      ]);
     } finally {
       setStreamingText("");
       setSending(false);
