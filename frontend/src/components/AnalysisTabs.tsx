@@ -1,0 +1,73 @@
+"use client";
+
+import { useState } from "react";
+import { AnalysisResult } from "@/lib/api";
+import { DigestView } from "./DigestView";
+import { CritiqueView } from "./CritiqueView";
+import { ClaimsView } from "./ClaimsView";
+
+type Tab = "original" | "digest" | "critique" | "claims";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "original", label: "Original" },
+  { id: "digest", label: "Digest" },
+  { id: "critique", label: "Critique" },
+  { id: "claims", label: "Claims" },
+];
+
+export function AnalysisTabs({
+  content,
+  analysis,
+  onRetry,
+  retrying,
+}: {
+  content: string;
+  analysis: AnalysisResult;
+  onRetry: () => void;
+  retrying: boolean;
+}) {
+  const [active, setActive] = useState<Tab>("original");
+
+  return (
+    <div className="mt-6">
+      <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActive(tab.id)}
+            className={`px-3 py-2 text-sm font-medium ${
+              active === tab.id
+                ? "border-b-2 border-neutral-900 text-neutral-900 dark:border-neutral-100 dark:text-neutral-100"
+                : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4">
+        {active === "original" && (
+          <pre className="whitespace-pre-wrap rounded-lg border border-neutral-200 bg-white p-5 text-sm leading-relaxed text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200">
+            {content}
+          </pre>
+        )}
+        {active === "digest" && (
+          <DigestView digest={analysis.digest} error={analysis.digest_error} onRetry={onRetry} retrying={retrying} />
+        )}
+        {active === "critique" && (
+          <CritiqueView
+            critique={analysis.critique}
+            error={analysis.critique_error}
+            onRetry={onRetry}
+            retrying={retrying}
+          />
+        )}
+        {active === "claims" && (
+          <ClaimsView claims={analysis.claims} error={analysis.claims_error} onRetry={onRetry} retrying={retrying} />
+        )}
+      </div>
+    </div>
+  );
+}
