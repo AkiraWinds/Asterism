@@ -76,9 +76,23 @@ export interface SourceDetail extends SourceSummary {
   analysis: AnalysisResult | null;
 }
 
+// Backend failures return a structured body — either an AgentErrorResponse
+// ({ message }) from the agent-integration paths, or a plain FastAPI
+// HTTPException ({ detail }) from everything else. Prefer whichever is
+// present and fall back to a hardcoded default if the body isn't JSON or
+// has neither field.
+async function extractErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json();
+    return body?.message ?? body?.detail ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function listSources(): Promise<SourceSummary[]> {
   const res = await fetch(`${BACKEND_URL}/sources`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to list sources");
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to list sources"));
   return res.json();
 }
 
@@ -92,18 +106,18 @@ export async function createSource(args: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(args),
   });
-  if (!res.ok) throw new Error("Failed to create source");
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to create source"));
   return res.json();
 }
 
 export async function getSource(id: string): Promise<SourceDetail> {
   const res = await fetch(`${BACKEND_URL}/sources/${id}`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to get source");
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to get source"));
   return res.json();
 }
 
 export async function analyzeSource(id: string): Promise<AnalysisResult> {
   const res = await fetch(`${BACKEND_URL}/sources/${id}/analyze`, { method: "POST" });
-  if (!res.ok) throw new Error("Failed to analyze source");
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to analyze source"));
   return res.json();
 }

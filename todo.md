@@ -96,6 +96,20 @@
 - **Seeding guard is process-cached**: `ensureUserDataInitialized` caches per-path
   initialization for the server's lifetime; deleting the data folder while the
   server runs won't re-seed until restart. Edge case, acceptable.
+- **Frontend analysis types are hand-mirrored from backend schemas**: `frontend/src/lib/api.ts`'s TypeScript
+  interfaces (`Triage`, `Digest`, `Critique`, `Claim`, `Connection`, `AnalysisResult`, etc.) are manually kept in sync
+  with `backend/app/schemas/analysis.py`, with nothing enforcing that sync. A field rename on either side becomes a
+  silent runtime `undefined` in the UI rather than a compile error. Found in the Phase 4.5 final review. **Why:** no
+  schema-codegen tooling exists in this repo yet. Revisit with a FastAPI OpenAPI export → `openapi-typescript`
+  pipeline (or similar) when the backend schema next changes.
+- **Triage card has no error affordance when `triage_error` is set**: `frontend/src/app/sources/[id]/page.tsx` only
+  renders the `TriageCard` when `analysis?.triage` is truthy. If `triage` is `null` with `triage_error` set — a real
+  partial-failure state the backend can produce, same as the other three analysis fields — the user sees nothing at
+  all: no card, no error, no retry affordance, unlike Digest/Critique/Claims which each render `AnalysisSectionError`
+  in that case. Found in the Phase 4.5 final review. **Why:** this was a gap in the original design spec, not a
+  deviation during implementation — the spec said the Triage card is "rendered whenever `analysis?.triage` is
+  present" without covering the error case. Revisit by rendering an `AnalysisSectionError` in the Triage card's place
+  when `triage_error` is set, mirroring the pattern already used by the other three tabs.
 
 ### Backend rewrite
 - **Hatchling build config**: pyproject.toml requires `[tool.hatch.build.targets.wheel]` with `packages = ["app"]` because hatchling cannot auto-detect that the package directory is named "app" instead of matching the project name "asterism-backend". This is a pragmatic solution; consider aligning the directory name with the project name if the package structure changes.

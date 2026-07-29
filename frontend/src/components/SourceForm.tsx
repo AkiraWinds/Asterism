@@ -22,8 +22,8 @@ export function SourceForm() {
     try {
       const source = mode === "link" ? await createSource({ url }) : await createSource({ title, content });
       router.push(`/sources/${source.id}`);
-    } catch {
-      setError("Failed to save source");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save source");
       setSubmitting(false);
     }
   }
