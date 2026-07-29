@@ -67,9 +67,16 @@ infrastructure exists.
 - Decisions: `docs/updates/plans/7-26-phase4-content-analysis-decisions.md`
 - Prompt validation: `docs/updates/plans/7-26-phase4-prompt-validation.md`
 
-## Phase 5 — Chat / Copilot
+## Phase 5 — Chat / Copilot (SCOPED, not yet implemented)
 
-Interactive streaming chat, reasoning over the user's library. Not yet scoped/spec'd. Builds on Phase 2 (streaming variant of the provider abstraction — explicitly deferred out of Phase 2's scope) and eventually Phase 6 (graph-guided retrieval, once the graph exists).
+Interactive streaming chat, reasoning over the user's library. Scoped to **single-source chat only** — context is
+one source's `content.md` + `analysis.json`, with text selection auto-attached as context (co-learning panel per
+`CLAUDE.md`'s UI spec). Adds `Provider.stream_complete()` (default single-chunk fallback + real streaming on
+`api_anthropic`/`api_openai`), a new `POST/GET /sources/{id}/chat` (SSE), and `chat.json` persistence. Library-wide
+copilot (reasoning across multiple/all sources) is explicitly deferred to Phase 6c, since it needs graph-guided
+retrieval that doesn't exist yet.
+
+- Spec: `docs/superpowers/specs/2026-07-29-chat-copilot-design.md`
 
 ## Phase 6 — Knowledge Graph
 
