@@ -258,6 +258,9 @@ def post_chat_endpoint(source_id: str, payload: ChatRequest):
                 collected += chunk
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
         except ProviderError as exc:
+            logger.warning(
+                "Chat stream provider error source_id=%s type=%s", source_id, type(exc).__name__
+            )
             append_chat_turn(
                 data_root,
                 source_id,

@@ -110,6 +110,20 @@
   deviation during implementation — the spec said the Triage card is "rendered whenever `analysis?.triage` is
   present" without covering the error case. Revisit by rendering an `AnalysisSectionError` in the Triage card's place
   when `triage_error` is set, mirroring the pattern already used by the other three tabs.
+- **Chat copilot — no real CLI-provider streaming yet**: `cli_claude`/`cli_codex` providers (`backend/app/providers/`)
+  implement `stream_complete()` via the single-chunk fallback (run the subprocess to completion, then yield the whole
+  response as one chunk) rather than incrementally forwarding partial output as it's produced. Only the
+  `api_anthropic`/`api_openai` providers stream token-by-token today. **Why:** already called out as
+  "Out of Scope (Deferred)" in `docs/superpowers/specs/2026-07-29-chat-copilot-design.md` — the CLI providers'
+  underlying subprocess protocols don't expose incremental output in a form the current adapter layer parses yet.
+  Revisit if CLI-provider users report chat feeling unresponsive compared to the API-key strategy.
+- **Chat copilot — no prompt truncation/summarization strategy**: `build_chat_prompt`
+  (`backend/app/chat/prompts.py`) concatenates the full source content, full analysis summary, and the entire
+  conversation history into one prompt with no length cap. A long source plus a long-running conversation can exceed
+  a provider's context window with no graceful degradation (e.g. summarizing older turns, truncating source content).
+  **Why:** already called out as "Out of Scope (Deferred)" in `docs/superpowers/specs/2026-07-29-chat-copilot-design.md`
+  — needs a real strategy (sliding window, summarization pass, or token-aware truncation), not a quick patch. Revisit
+  once real usage data shows how often sources/conversations approach context limits.
 
 ### Backend rewrite
 - **Hatchling build config**: pyproject.toml requires `[tool.hatch.build.targets.wheel]` with `packages = ["app"]` because hatchling cannot auto-detect that the package directory is named "app" instead of matching the project name "asterism-backend". This is a pragmatic solution; consider aligning the directory name with the project name if the package structure changes.

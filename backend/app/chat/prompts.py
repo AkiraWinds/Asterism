@@ -25,8 +25,21 @@ def build_chat_prompt(
     if analysis is not None and analysis.digest is not None:
         parts.append(f"## Existing summary\n\n{analysis.digest.summary}")
 
-    if history:
-        turns_text = "\n".join(f"{turn.role}: {turn.content}" for turn in history)
+    # Skip turns with empty/whitespace-only content entirely — these are
+    # left behind by mid-stream provider failures (see ChatTurn.truncated)
+    # and would otherwise accumulate as dangling `assistant: ` lines that
+    # pollute every future prompt with no useful signal. Turns that are
+    # truncated but DO have partial content are annotated distinctly so the
+    # model understands that reply was cut short, not a complete answer.
+    rendered_turns = []
+    for turn in history:
+        if not turn.content or not turn.content.strip():
+            continue
+        role_label = f"{turn.role} (interrupted)" if turn.truncated else turn.role
+        rendered_turns.append(f"{role_label}: {turn.content}")
+
+    if rendered_turns:
+        turns_text = "\n".join(rendered_turns)
         parts.append(f"## Conversation so far\n\n{turns_text}")
 
     if attached_highlight:

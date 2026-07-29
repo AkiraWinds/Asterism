@@ -43,3 +43,28 @@ def test_prompt_includes_attached_highlight():
     prompt = build_chat_prompt(content="Body.", analysis=None, history=[], attached_highlight="a quoted passage", message="Q")
 
     assert "a quoted passage" in prompt
+
+
+def test_prompt_skips_truncated_turns_with_empty_content():
+    history = [
+        ChatTurn(role="user", content="A question", created_at="2026-07-29T12:00:00Z"),
+        ChatTurn(role="assistant", content="", truncated=True, created_at="2026-07-29T12:00:01Z"),
+        ChatTurn(role="assistant", content="   ", truncated=True, created_at="2026-07-29T12:00:02Z"),
+    ]
+
+    prompt = build_chat_prompt(content="Body.", analysis=None, history=history, attached_highlight=None, message="Follow-up")
+
+    assert "assistant: " not in prompt
+    assert "assistant (interrupted): " not in prompt
+    assert "A question" in prompt
+
+
+def test_prompt_annotates_truncated_turn_with_partial_content():
+    history = [
+        ChatTurn(role="user", content="A question", created_at="2026-07-29T12:00:00Z"),
+        ChatTurn(role="assistant", content="Partial answer before it died", truncated=True, created_at="2026-07-29T12:00:01Z"),
+    ]
+
+    prompt = build_chat_prompt(content="Body.", analysis=None, history=history, attached_highlight=None, message="Follow-up")
+
+    assert "assistant (interrupted): Partial answer before it died" in prompt

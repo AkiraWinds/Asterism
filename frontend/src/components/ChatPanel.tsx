@@ -6,9 +6,11 @@ import { ChatTurn, getChatHistory, streamChatMessage } from "@/lib/api";
 export function ChatPanel({
   sourceId,
   attachedHighlight,
+  onClearAttachedHighlight,
 }: {
   sourceId: string;
   attachedHighlight: string | null;
+  onClearAttachedHighlight: () => void;
 }) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
@@ -59,6 +61,9 @@ export function ChatPanel({
           created_at: new Date().toISOString(),
         },
       ]);
+      // The highlight was successfully sent as context for this turn — don't
+      // let it silently persist and get attached to unrelated future messages.
+      onClearAttachedHighlight();
     } catch (err) {
       setTurns((prev) => [
         ...prev,
@@ -111,9 +116,20 @@ export function ChatPanel({
       </div>
 
       {attachedHighlight && (
-        <div className="mx-3 mb-2 rounded-md bg-neutral-100 px-3 py-2 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-          Attached: &quot;{attachedHighlight.slice(0, 80)}
-          {attachedHighlight.length > 80 ? "…" : ""}&quot;
+        <div className="mx-3 mb-2 flex items-start justify-between gap-2 rounded-md bg-neutral-100 px-3 py-2 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+          <span>
+            Attached: &quot;{attachedHighlight.slice(0, 80)}
+            {attachedHighlight.length > 80 ? "…" : ""}&quot;
+          </span>
+          <button
+            type="button"
+            onClick={onClearAttachedHighlight}
+            aria-label="Dismiss attached highlight"
+            title="Dismiss attached highlight"
+            className="shrink-0 rounded px-1 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-100"
+          >
+            ×
+          </button>
         </div>
       )}
 

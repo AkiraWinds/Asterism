@@ -5,6 +5,13 @@
 // selected text to the chat panel via `onHighlightSelected`, and renders two
 // currently-disabled action buttons ("Save as note" / "Add comment") that are
 // wired up in a later phase.
+//
+// `onHighlightSelected` is only ever called with a genuinely new non-empty
+// in-container selection — never with `null`. The attached highlight is a
+// "latched" value owned by the parent; clearing it is an explicit user action
+// (dismiss button / after send), not something that fires just because the
+// live selection collapsed (e.g. clicking into the chat input). See
+// docs/superpowers/plans/2026-07-29-chat-copilot.md final-review fix notes.
 import { useEffect, useState } from "react";
 
 export function SelectionToolbar({
@@ -12,7 +19,7 @@ export function SelectionToolbar({
   onHighlightSelected,
 }: {
   containerRef: React.RefObject<HTMLElement | null>;
-  onHighlightSelected: (text: string | null) => void;
+  onHighlightSelected: (text: string) => void;
 }) {
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [selectedText, setSelectedText] = useState("");
@@ -24,9 +31,10 @@ export function SelectionToolbar({
       const text = selection?.toString().trim() ?? "";
 
       if (!selection || !container || text.length === 0 || selection.rangeCount === 0) {
+        // Selection collapsed/cleared — just hide the toolbar. Do NOT clear
+        // the attached highlight here; that's an explicit user action now.
         setPosition(null);
         setSelectedText("");
-        onHighlightSelected(null);
         return;
       }
 
@@ -34,12 +42,15 @@ export function SelectionToolbar({
       if (!container.contains(range.commonAncestorContainer)) {
         setPosition(null);
         setSelectedText("");
-        onHighlightSelected(null);
         return;
       }
 
       const rect = range.getBoundingClientRect();
-      setPosition({ top: rect.top + window.scrollY - 40, left: rect.left + window.scrollX });
+      // rect is already viewport-relative (getBoundingClientRect), and we
+      // render with `fixed` positioning (also viewport-relative) — do NOT add
+      // window.scrollX/scrollY here, that double-counts the scroll offset.
+      // Floor `top` so the toolbar never renders above the viewport.
+      setPosition({ top: Math.max(8, rect.top - 40), left: rect.left });
       setSelectedText(text);
       onHighlightSelected(text);
     }

@@ -102,7 +102,11 @@ export default function SourcePage() {
         </div>
 
         <div className="h-[70vh] lg:sticky lg:top-12">
-          <ChatPanel sourceId={id} attachedHighlight={attachedHighlight} />
+          <ChatPanel
+            sourceId={id}
+            attachedHighlight={attachedHighlight}
+            onClearAttachedHighlight={() => setAttachedHighlight(null)}
+          />
         </div>
       </div>
 
