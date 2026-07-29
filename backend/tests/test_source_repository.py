@@ -12,8 +12,11 @@ from app.repositories.source_repository import (
     list_analysis_summaries,
     read_analysis,
     write_analysis,
+    append_chat_turn,
+    read_chat,
 )
 from app.schemas.analysis import AnalysisResult, Claim, Digest
+from app.schemas.chat import ChatHistory, ChatTurn
 
 
 def test_create_source_writes_meta_and_content(tmp_path: Path):
@@ -194,3 +197,26 @@ def test_list_analysis_claims_returns_only_requested_ids_with_claims(tmp_path: P
     assert len(results) == 1
     assert results[0]["id"] == source.id
     assert results[0]["claims"][0].text == "X is true"
+
+
+def test_read_chat_returns_empty_history_when_no_file(tmp_path: Path):
+    source_id = create_source(tmp_path, title="T", content="c").id
+
+    history = read_chat(tmp_path, source_id)
+
+    assert history == ChatHistory(turns=[])
+
+
+def test_append_chat_turn_creates_and_appends(tmp_path: Path):
+    source_id = create_source(tmp_path, title="T", content="c").id
+
+    append_chat_turn(
+        tmp_path, source_id, ChatTurn(role="user", content="hi", created_at="2026-07-29T12:00:00Z")
+    )
+    append_chat_turn(
+        tmp_path, source_id, ChatTurn(role="assistant", content="hello back", created_at="2026-07-29T12:00:01Z")
+    )
+
+    history = read_chat(tmp_path, source_id)
+    assert [t.role for t in history.turns] == ["user", "assistant"]
+    assert history.turns[1].content == "hello back"
