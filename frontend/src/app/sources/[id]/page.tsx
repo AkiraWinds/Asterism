@@ -6,6 +6,7 @@ import Link from "next/link";
 import { analyzeSource, getSource, SourceDetail } from "@/lib/api";
 import { TriageCard } from "@/components/TriageCard";
 import { AnalysisTabs } from "@/components/AnalysisTabs";
+import { ChatPanel } from "@/components/ChatPanel";
 
 export default function SourcePage() {
   const { id } = useParams<{ id: string }>();
@@ -63,34 +64,42 @@ export default function SourcePage() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-12">
+    <main className="mx-auto max-w-6xl px-6 py-12">
       {backLink}
 
-      <h1 className="mt-4 text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
-        {source.title}
-      </h1>
+      <div className="mt-4 grid grid-cols-1 gap-8 lg:grid-cols-[1fr_360px]">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+            {source.title}
+          </h1>
 
-      {source.analysis?.triage && <TriageCard triage={source.analysis.triage} />}
+          {source.analysis?.triage && <TriageCard triage={source.analysis.triage} />}
 
-      {error && <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {error && <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-      {source.analysis ? (
-        <AnalysisTabs
-          content={source.content}
-          analysis={source.analysis}
-          onRetry={handleAnalyze}
-          retrying={analyzing}
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={handleAnalyze}
-          disabled={analyzing}
-          className="mt-6 rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
-        >
-          {analyzing ? "Analyzing…" : "Analyze"}
-        </button>
-      )}
+          {source.analysis ? (
+            <AnalysisTabs
+              content={source.content}
+              analysis={source.analysis}
+              onRetry={handleAnalyze}
+              retrying={analyzing}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={handleAnalyze}
+              disabled={analyzing}
+              className="mt-6 rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
+            >
+              {analyzing ? "Analyzing…" : "Analyze"}
+            </button>
+          )}
+        </div>
+
+        <div className="h-[70vh] lg:sticky lg:top-12">
+          <ChatPanel sourceId={id} />
+        </div>
+      </div>
     </main>
   );
 }
