@@ -1,11 +1,14 @@
 """API routes for creating, listing, and analyzing sources."""
 
+import json
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
 
+from app.chat.prompts import build_chat_prompt
 from app.core.config import get_data_root
 from app.graph import build_system_graph, checkpoint_db_path
 from app.ingestion.extractor import extract_content
@@ -23,17 +26,21 @@ from app.providers.base import (
     ProviderMissingError,
     ProviderTimeoutError,
 )
+from app.providers.factory import build_provider
 from app.repositories.config_repository import ConfigError, load_config
 from app.repositories.source_repository import (
+    append_chat_turn,
     create_source,
     create_source_from_url,
     get_source,
     list_sources,
     read_analysis,
+    read_chat,
     write_analysis,
 )
 from app.schemas.agent import AgentErrorResponse
 from app.schemas.analysis import AnalysisResult
+from app.schemas.chat import ChatHistory, ChatRequest, ChatTurn
 from app.schemas.source import (
     SourceCreateRequest,
     SourceDetailResponse,
@@ -42,6 +49,10 @@ from app.schemas.source import (
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 logger = logging.getLogger(__name__)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _error_response(status_code: int, error_type: str, message: str) -> JSONResponse:
@@ -188,3 +199,78 @@ def analyze_source_endpoint(source_id: str):
     result = output["result"]
     write_analysis(data_root, source_id, result)
     return result
+
+
+@router.get("/{source_id}/chat", response_model=ChatHistory)
+def get_chat_endpoint(source_id: str) -> ChatHistory:
+    data_root = get_data_root()
+    if get_source(data_root, source_id) is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return read_chat(data_root, source_id)
+
+
+@router.post("/{source_id}/chat")
+def post_chat_endpoint(source_id: str, payload: ChatRequest):
+    data_root = get_data_root()
+    record = get_source(data_root, source_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    # Only a missing config.json can be checked before the SSE response starts.
+    # ProviderMissingError/ProviderConfigError only actually raise once
+    # stream_complete() is called, which happens lazily inside the generator
+    # below — by then the response's 200 status is already committed, so
+    # those surface as a mid-stream `event: error` frame instead (see
+    # docs/superpowers/specs/2026-07-29-chat-copilot-design.md Error Handling).
+    try:
+        config = load_config(data_root)
+    except ConfigError as exc:
+        return _error_response(400, "config", str(exc))
+
+    provider = build_provider(config, data_root)
+    analysis = read_analysis(data_root, source_id)
+    history = read_chat(data_root, source_id)
+    now = _now_iso()
+
+    prompt = build_chat_prompt(
+        content=record.content,
+        analysis=analysis,
+        history=history.turns,
+        attached_highlight=payload.attached_highlight,
+        message=payload.message,
+    )
+
+    append_chat_turn(
+        data_root,
+        source_id,
+        ChatTurn(
+            role="user",
+            content=payload.message,
+            attached_highlight=payload.attached_highlight,
+            created_at=now,
+        ),
+    )
+
+    def event_stream():
+        collected = ""
+        try:
+            for chunk in provider.stream_complete(prompt):
+                collected += chunk
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+        except ProviderError as exc:
+            append_chat_turn(
+                data_root,
+                source_id,
+                ChatTurn(role="assistant", content=collected, truncated=True, created_at=_now_iso()),
+            )
+            yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
+            return
+
+        append_chat_turn(
+            data_root,
+            source_id,
+            ChatTurn(role="assistant", content=collected, created_at=_now_iso()),
+        )
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
