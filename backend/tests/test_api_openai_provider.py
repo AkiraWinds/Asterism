@@ -43,3 +43,46 @@ def test_complete_raises_provider_error_on_other_api_error():
     with patch("app.providers.api_openai.openai.OpenAI", return_value=mock_client):
         with pytest.raises(ProviderError):
             provider.complete("Hello")
+
+
+def _chunk(content):
+    return MagicMock(choices=[MagicMock(delta=MagicMock(content=content))])
+
+
+def test_stream_complete_yields_text_deltas():
+    provider = OpenAiApiProvider(api_key="sk-test")
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = iter(
+        [_chunk("Hel"), _chunk("lo"), _chunk(None), _chunk(" back")]
+    )
+
+    with patch("app.providers.api_openai.openai.OpenAI", return_value=mock_client) as mock_ctor:
+        chunks = list(provider.stream_complete("Hello"))
+
+    assert chunks == ["Hel", "lo", " back"]
+    mock_ctor.assert_called_once_with(api_key="sk-test")
+    _, kwargs = mock_client.chat.completions.create.call_args
+    assert kwargs["messages"] == [{"role": "user", "content": "Hello"}]
+    assert kwargs["stream"] is True
+
+
+def test_stream_complete_raises_config_error_on_authentication_error():
+    provider = OpenAiApiProvider(api_key="bad-key")
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = openai.AuthenticationError(
+        "invalid api key", response=MagicMock(), body=None
+    )
+
+    with patch("app.providers.api_openai.openai.OpenAI", return_value=mock_client):
+        with pytest.raises(ProviderConfigError):
+            list(provider.stream_complete("Hello"))
+
+
+def test_stream_complete_raises_provider_error_on_other_api_error():
+    provider = OpenAiApiProvider(api_key="sk-test")
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = openai.APIConnectionError(request=MagicMock())
+
+    with patch("app.providers.api_openai.openai.OpenAI", return_value=mock_client):
+        with pytest.raises(ProviderError):
+            list(provider.stream_complete("Hello"))
