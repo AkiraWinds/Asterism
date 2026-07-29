@@ -76,6 +76,14 @@ export interface SourceDetail extends SourceSummary {
   analysis: AnalysisResult | null;
 }
 
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+  attached_highlight: string | null;
+  truncated: boolean;
+  created_at: string;
+}
+
 // Backend failures return a structured body — either an AgentErrorResponse
 // ({ message }) from the agent-integration paths, or a plain FastAPI
 // HTTPException ({ detail }) from everything else. Prefer whichever is
@@ -120,4 +128,61 @@ export async function analyzeSource(id: string): Promise<AnalysisResult> {
   const res = await fetch(`${BACKEND_URL}/sources/${id}/analyze`, { method: "POST" });
   if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to analyze source"));
   return res.json();
+}
+
+export async function getChatHistory(id: string): Promise<ChatTurn[]> {
+  const res = await fetch(`${BACKEND_URL}/sources/${id}/chat`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load chat history"));
+  const body = await res.json();
+  return body.turns;
+}
+
+// Native EventSource can't send a POST body, so the SSE stream is read manually
+// via fetch()'s ReadableStream: each chunk is decoded, split into "\n\n"-delimited
+// frames, and dispatched by its "event:" line (default "message").
+export async function streamChatMessage(
+  id: string,
+  message: string,
+  attachedHighlight: string | null,
+  onChunk: (text: string) => void
+): Promise<{ truncated: boolean; errorMessage: string | null }> {
+  const res = await fetch(`${BACKEND_URL}/sources/${id}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, attached_highlight: attachedHighlight }),
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(await extractErrorMessage(res, "Failed to send chat message"));
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let errorMessage: string | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+
+      let event = "message";
+      let data: { text?: string; message?: string } = {};
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event: ")) event = line.slice("event: ".length);
+        else if (line.startsWith("data: ")) data = JSON.parse(line.slice("data: ".length));
+      }
+
+      if (event === "message" && data.text) onChunk(data.text);
+      if (event === "error") errorMessage = data.message ?? "Response interrupted";
+
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
+
+  return { truncated: errorMessage !== null, errorMessage };
 }
