@@ -27,3 +27,14 @@ def test_provider_error_subtypes_carry_message():
 )
 def test_provider_error_subtypes_are_provider_errors(error_cls):
     assert issubclass(error_cls, ProviderError)
+
+
+def test_stream_complete_default_yields_complete_result_as_one_chunk():
+    class EchoProvider(Provider):
+        def complete(self, prompt: str) -> str:
+            return f"echo: {prompt}"
+
+    provider = EchoProvider()
+    chunks = list(provider.stream_complete("hello"))
+
+    assert chunks == ["echo: hello"]

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.schemas.analysis import AnalysisResult
+from app.schemas.chat import ChatHistory, ChatTurn
 
 
 @dataclass
@@ -180,3 +181,19 @@ def list_analysis_claims(data_root: Path, source_ids: list[str]) -> list[dict]:
             continue
         results.append({"id": meta["id"], "title": meta["original_title"], "claims": analysis.claims})
     return results
+
+
+def append_chat_turn(data_root: Path, source_id: str, turn: ChatTurn) -> None:
+    """Append one turn to chat.json, creating the file if it doesn't exist yet."""
+    chat_path = data_root / "library" / source_id / "chat.json"
+    history = read_chat(data_root, source_id)
+    history.turns.append(turn)
+    chat_path.write_text(history.model_dump_json(indent=2))
+
+
+def read_chat(data_root: Path, source_id: str) -> ChatHistory:
+    """Read chat.json if it exists, else return an empty ChatHistory."""
+    chat_path = data_root / "library" / source_id / "chat.json"
+    if not chat_path.exists():
+        return ChatHistory()
+    return ChatHistory.model_validate_json(chat_path.read_text())

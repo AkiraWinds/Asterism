@@ -60,6 +60,7 @@ Every source gets a quick assessment:
 │   │       ├── original.html   # IMMUTABLE: raw HTML from capture
 │   │       ├── content.md      # DERIVED: processed content (editable)
 │   │       ├── analysis.json   # DERIVED: AI analysis (editable)
+│   │       ├── chat.json       # DERIVED: per-source chat history, appended to per turn
 │   │       ├── README.md       # DERIVED: human-readable Triage Card
 │   │       └── error.txt       # Only present if processing failed
 │   └── {id}/                   # Sources can also be at top level
@@ -118,6 +119,7 @@ Status is **inferred from file existence**, not stored:
 | `original.html` / `original.txt` | **ORIGINAL** | Raw content from first capture. **NEVER overwrite.** |
 | `content.md` | **DERIVED** | Processed/extracted content. Can regenerate. |
 | `analysis.json` | **DERIVED** | AI analysis. Can regenerate. |
+| `chat.json` | **DERIVED** | Per-source chat history — appended to per turn. Can regenerate/clear. |
 | `README.md` (triage card) | **DERIVED** | Human-readable summary. Can regenerate. |
 
 **Reanalyze operation**:

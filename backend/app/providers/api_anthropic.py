@@ -1,3 +1,5 @@
+from typing import Iterator
+
 import anthropic
 
 from app.providers.base import Provider, ProviderConfigError, ProviderError
@@ -25,3 +27,18 @@ class AnthropicApiProvider(Provider):
             raise ProviderError(str(exc)) from exc
 
         return "".join(block.text for block in response.content if block.type == "text").strip()
+
+    def stream_complete(self, prompt: str) -> Iterator[str]:
+        client = anthropic.Anthropic(api_key=self._api_key)
+
+        try:
+            with client.messages.stream(
+                model=MODEL,
+                max_tokens=MAX_TOKENS,
+                messages=[{"role": "user", "content": prompt}],
+            ) as stream:
+                yield from stream.text_stream
+        except anthropic.AuthenticationError as exc:
+            raise ProviderConfigError(str(exc)) from exc
+        except anthropic.APIError as exc:
+            raise ProviderError(str(exc)) from exc
