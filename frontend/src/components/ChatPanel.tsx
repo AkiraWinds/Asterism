@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { ChatTurn, getChatHistory, streamChatMessage } from "@/lib/api";
 
-export function ChatPanel({ sourceId }: { sourceId: string }) {
+export function ChatPanel({
+  sourceId,
+  attachedHighlight,
+}: {
+  sourceId: string;
+  attachedHighlight: string | null;
+}) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -31,7 +37,7 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
     const userTurn: ChatTurn = {
       role: "user",
       content: message,
-      attached_highlight: null,
+      attached_highlight: attachedHighlight,
       truncated: false,
       created_at: new Date().toISOString(),
     };
@@ -39,7 +45,7 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
 
     try {
       let accumulated = "";
-      const { truncated } = await streamChatMessage(sourceId, message, null, (chunk) => {
+      const { truncated } = await streamChatMessage(sourceId, message, attachedHighlight, (chunk) => {
         accumulated += chunk;
         setStreamingText(accumulated);
       });
@@ -103,6 +109,13 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
         )}
         <div ref={bottomRef} />
       </div>
+
+      {attachedHighlight && (
+        <div className="mx-3 mb-2 rounded-md bg-neutral-100 px-3 py-2 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+          Attached: &quot;{attachedHighlight.slice(0, 80)}
+          {attachedHighlight.length > 80 ? "…" : ""}&quot;
+        </div>
+      )}
 
       <div className="flex gap-2 border-t border-neutral-200 p-3 dark:border-neutral-800">
         <input
