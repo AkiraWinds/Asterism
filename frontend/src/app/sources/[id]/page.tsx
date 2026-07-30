@@ -110,7 +110,7 @@ export default function SourcePage() {
         </div>
       </div>
 
-      <SelectionToolbar containerRef={contentRef} onHighlightSelected={setAttachedHighlight} />
+      <SelectionToolbar sourceId={id} containerRef={contentRef} onHighlightSelected={setAttachedHighlight} />
     </main>
   );
 }

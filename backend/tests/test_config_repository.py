@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from app.repositories.config_repository import AgentConfig, ConfigError, load_config
+from app.repositories.config_repository import AgentConfig, ConfigError, load_config, load_embeddings_api_key
 
 
 def _write_config(data_root: Path, data: dict) -> None:
@@ -59,3 +59,21 @@ def test_load_config_returns_config_for_valid_api_key_strategy(tmp_path: Path):
     config = load_config(tmp_path)
 
     assert config == AgentConfig(strategy="api-key", provider="openai", api_key="sk-test")
+
+
+def test_load_embeddings_api_key_returns_key(tmp_path: Path):
+    (tmp_path / "config.json").write_text(
+        json.dumps({"strategy": "api-key", "provider": "anthropic", "api_key": "fake", "embeddings_api_key": "sk-embed"})
+    )
+    assert load_embeddings_api_key(tmp_path) == "sk-embed"
+
+
+def test_load_embeddings_api_key_raises_when_config_missing(tmp_path: Path):
+    with pytest.raises(ConfigError):
+        load_embeddings_api_key(tmp_path)
+
+
+def test_load_embeddings_api_key_raises_when_field_missing(tmp_path: Path):
+    (tmp_path / "config.json").write_text(json.dumps({"strategy": "api-key", "provider": "anthropic", "api_key": "fake"}))
+    with pytest.raises(ConfigError):
+        load_embeddings_api_key(tmp_path)

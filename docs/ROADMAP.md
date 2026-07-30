@@ -67,7 +67,7 @@ infrastructure exists.
 - Decisions: `docs/updates/plans/7-26-phase4-content-analysis-decisions.md`
 - Prompt validation: `docs/updates/plans/7-26-phase4-prompt-validation.md`
 
-## Phase 5 — Chat / Copilot (DONE, pending merge to main)
+## Phase 5 — Chat / Copilot (DONE, merged to main)
 
 Interactive streaming chat, reasoning over the user's library. Scoped to **single-source chat only** — context is
 one source's `content.md` + `analysis.json`, with text selection auto-attached as context (co-learning panel per
@@ -88,9 +88,9 @@ The centerpiece of the whole rewrite. Fully decided at the design level in `docs
 2. **Entity dedup**: embedding filter + LLM judgment, confidence-gated — high-confidence merges auto-apply, ambiguous ones queue for batch review. A user's own note asserting a relationship overrides ambiguous embedding similarity (validated in Phase-1 prompt testing, see `docs/updates/plans/7-25-phase1-prompt-validation.md`, local-only).
 3. **Copilot retrieval**: hybrid graph-guided — resolve query to concept node(s), expand 1-2 hops, pull real source passages as grounding, fall back to plain semantic search for unhighlighted content.
 4. **Ingestion scope**: prose-like sources only for MVP (see Phase 3 note above).
-5. **Storage**: Kuzu (embedded, Cypher-like, no server process) — chosen over Neo4j (adds a server dependency) and NetworkX (fine for prototype, not long-term).
+5. **Storage**: ~~Kuzu~~ **superseded 2026-07-30**: Kuzu was archived in October 2025 after its creator's acquisition by Apple, maintenance passed to an unproven community fork. Phase 6b uses plain SQLite instead (brute-force cosine similarity, no dedicated graph DB) — see `docs/superpowers/specs/2026-07-30-knowledge-graph-phase6b-design.md`.
 6. **Notes ↔ graph integration**: the user's own written notes are highlighted the same way as sources, feeding the same extraction pipeline — this is what makes it a *personal* knowledge graph rather than a reader + a separate notes app.
-7. **Sub-phase roadmap** (within this phase): (a) prompt validation — done, see the Phase-1 doc; (b) graph-only service — build Kuzu store + concept nodes from existing `highlights.json`, no copilot changes; (c) copilot integration — wire the concept graph into hybrid retrieval last.
+7. **Sub-phase roadmap** (within this phase): (a) prompt validation — done, see the Phase-1 doc; (b) **graph-only service — spec + plan written 2026-07-30** (`docs/superpowers/specs/2026-07-30-knowledge-graph-phase6b-design.md`, `docs/superpowers/plans/2026-07-30-knowledge-graph-phase6b.md`), not yet executed: SQLite concept-node store built from user highlights, no copilot changes; (b-2) **new, not yet spec'd** — Tier 1 (automatic article-level graph, see point 1 above): every saved source becomes a graph node automatically, using Phase 4's already-existing `digest.concepts`/`digest.summary` (no highlight required) fed through the same embed→dedup pipeline 6b builds, rather than a separate mechanism — do this right after 6b lands, before 6c; (c) copilot integration — wire the concept graph into hybrid retrieval last.
 8. **User-seeded entities**: top-down concept watchlist — user declares a term they care about, system searches internally then falls back to web search (reusing the existing Brave key integration), AI drafts a definition, user approves synchronously (unlike per-highlight dedup, this is a deliberate action so blocking is fine).
 
 Open questions not yet resolved (deferred until this phase is actually picked up): adapter design for code/structured sources, per-speaker highlight semantics for meeting transcripts, concrete dedup confidence thresholds (needs empirical tuning), where the "seed an entity" UI action lives.

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app.schemas.analysis import AnalysisResult
 from app.schemas.chat import ChatHistory, ChatTurn
+from app.schemas.highlight import Highlight, HighlightHistory
 
 
 @dataclass
@@ -197,3 +198,44 @@ def read_chat(data_root: Path, source_id: str) -> ChatHistory:
     if not chat_path.exists():
         return ChatHistory()
     return ChatHistory.model_validate_json(chat_path.read_text())
+
+
+def append_highlight(data_root: Path, source_id: str, highlight: Highlight) -> None:
+    """Append one highlight to highlights.json, creating the file if it doesn't exist yet."""
+    highlights_path = data_root / "library" / source_id / "highlights.json"
+    history = read_highlights(data_root, source_id)
+    history.highlights.append(highlight)
+    highlights_path.write_text(history.model_dump_json(indent=2))
+
+
+def read_highlights(data_root: Path, source_id: str) -> HighlightHistory:
+    """Read highlights.json if it exists, else return an empty HighlightHistory."""
+    highlights_path = data_root / "library" / source_id / "highlights.json"
+    if not highlights_path.exists():
+        return HighlightHistory()
+    return HighlightHistory.model_validate_json(highlights_path.read_text())
+
+
+def read_source_url(data_root: Path, source_id: str) -> str | None:
+    """Read meta.json's source_url field, present only for URL-ingested sources
+    (see create_source_from_url) — None for pasted-text/write-text sources."""
+    meta_path = data_root / "library" / source_id / "meta.json"
+    if not meta_path.exists():
+        return None
+    meta = json.loads(meta_path.read_text())
+    return meta.get("source_url")
+
+
+def update_highlight_note(data_root: Path, source_id: str, highlight_id: str, note: str | None) -> Highlight | None:
+    """Update one highlight's note in place, returning the updated Highlight,
+    or None if no highlight with that id exists. A single editable note field,
+    not a growing list of comments (see design doc's Data Model section)."""
+    history = read_highlights(data_root, source_id)
+    for i, h in enumerate(history.highlights):
+        if h.id == highlight_id:
+            updated = h.model_copy(update={"note": note})
+            history.highlights[i] = updated
+            highlights_path = data_root / "library" / source_id / "highlights.json"
+            highlights_path.write_text(history.model_dump_json(indent=2))
+            return updated
+    return None

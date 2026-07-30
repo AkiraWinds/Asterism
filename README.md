@@ -135,6 +135,24 @@ Provider-specific spawn details stay in the provider layer; the rest of the app 
 </details>
 
 <details>
+<summary><b>Concept graph</b></summary>
+
+Every highlight you save is run through a concept-extraction pipeline that builds the knowledge graph at `/graph`: extract concepts, embed them, find nearest neighbors, and judge duplicates.
+
+That embedding step needs an OpenAI API key — set `embeddings_api_key` in `config.json`. This is **separate from and always required regardless of** your chat/completion provider choice above: Anthropic has no embeddings endpoint, and CLI providers (`claude`/`codex`) have no embedding capability at all, so the concept graph always calls OpenAI directly for embeddings even if your agent provider is something else.
+
+```json
+{
+  "agentProvider": "claude",
+  "embeddings_api_key": "sk-..."
+}
+```
+
+Without it, saving a highlight still succeeds, but the source's concept extraction degrades to an `extraction_error` on that highlight rather than blocking the save.
+
+</details>
+
+<details>
 <summary><b>Development</b></summary>
 
 ```bash
