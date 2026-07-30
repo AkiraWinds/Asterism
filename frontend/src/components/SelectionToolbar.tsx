@@ -119,6 +119,17 @@ export function SelectionToolbar({
       }
 
       const rect = range.getBoundingClientRect();
+      // A genuinely new selection starts from a clean slate: cancel any
+      // pending auto-reset timeout and stale success message left over from
+      // a PREVIOUS save. Without this, (a) the old "Saved — …" message would
+      // render under the newly-opened toolbar, and (b) the stale timeout
+      // would eventually fire resetToolbar() unconditionally, wiping out the
+      // position/selectedText/commentText this new selection just set.
+      if (resetTimeoutRef.current) {
+        clearTimeout(resetTimeoutRef.current);
+        resetTimeoutRef.current = null;
+      }
+      setSaveSuccessMessage(null);
       isActiveRef.current = true;
       setPosition({ top: Math.max(8, rect.top - 40), left: rect.left });
       setSelectedText(text);
