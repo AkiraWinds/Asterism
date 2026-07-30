@@ -84,6 +84,41 @@ export interface ChatTurn {
   created_at: string;
 }
 
+export interface UserHighlight {
+  id: string;
+  source_quote: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface GraphConceptNode {
+  id: string;
+  term: string;
+  definition: string;
+  self_relevant: boolean;
+}
+
+export interface GraphEdge {
+  id: string;
+  from_id: string;
+  to_id: string;
+  type: "related" | "contradicts" | "extends";
+  summary: string;
+}
+
+export interface GraphData {
+  nodes: GraphConceptNode[];
+  edges: GraphEdge[];
+}
+
+export interface HighlightProcessResult {
+  highlight: UserHighlight;
+  concepts: GraphConceptNode[];
+  edges: GraphEdge[];
+  queued: unknown[];
+  extraction_error: string | null;
+}
+
 // Backend failures return a structured body — either an AgentErrorResponse
 // ({ message }) from the agent-integration paths, or a plain FastAPI
 // HTTPException ({ detail }) from everything else. Prefer whichever is
@@ -185,4 +220,31 @@ export async function streamChatMessage(
   }
 
   return { truncated: errorMessage !== null, errorMessage };
+}
+
+export async function saveHighlight(
+  sourceId: string,
+  sourceQuote: string,
+  note: string | null
+): Promise<HighlightProcessResult> {
+  const res = await fetch(`${BACKEND_URL}/sources/${sourceId}/highlights`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source_quote: sourceQuote, note }),
+  });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to save highlight"));
+  return res.json();
+}
+
+export async function getHighlights(sourceId: string): Promise<UserHighlight[]> {
+  const res = await fetch(`${BACKEND_URL}/sources/${sourceId}/highlights`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load highlights"));
+  const body = await res.json();
+  return body.highlights;
+}
+
+export async function getGraph(): Promise<GraphData> {
+  const res = await fetch(`${BACKEND_URL}/graph`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load graph"));
+  return res.json();
 }
