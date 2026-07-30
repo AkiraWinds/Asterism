@@ -2,6 +2,7 @@
 
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
@@ -9,8 +10,10 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.chat.prompts import build_chat_prompt
+from app.concept_graph.pipeline import process_highlight
 from app.core.config import get_data_root
 from app.graph import build_system_graph, checkpoint_db_path
+from app.graph_store.store import delete_concept_highlights_for_highlight, graph_db_path, init_db
 from app.ingestion.extractor import extract_content
 from app.ingestion.fetcher import (
     FetchBlockedError,
@@ -27,20 +30,26 @@ from app.providers.base import (
     ProviderTimeoutError,
 )
 from app.providers.factory import build_provider
-from app.repositories.config_repository import ConfigError, load_config
+from app.repositories.config_repository import ConfigError, load_config, load_embeddings_api_key
 from app.repositories.source_repository import (
     append_chat_turn,
+    append_highlight,
     create_source,
     create_source_from_url,
     get_source,
     list_sources,
     read_analysis,
     read_chat,
+    read_highlights,
+    read_source_url,
+    update_highlight_note,
     write_analysis,
 )
 from app.schemas.agent import AgentErrorResponse
 from app.schemas.analysis import AnalysisResult
 from app.schemas.chat import ChatHistory, ChatRequest, ChatTurn
+from app.schemas.graph import HighlightProcessResult
+from app.schemas.highlight import Highlight, HighlightCreateRequest, HighlightHistory, HighlightUpdateRequest
 from app.schemas.source import (
     SourceCreateRequest,
     SourceDetailResponse,
@@ -277,3 +286,75 @@ def post_chat_endpoint(source_id: str, payload: ChatRequest):
         yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.get("/{source_id}/highlights", response_model=HighlightHistory)
+def get_highlights_endpoint(source_id: str) -> HighlightHistory:
+    data_root = get_data_root()
+    if get_source(data_root, source_id) is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return read_highlights(data_root, source_id)
+
+
+def _load_llm_and_embeddings(data_root):
+    """Returns (provider, embeddings_api_key) or raises ConfigError."""
+    config = load_config(data_root)
+    embeddings_api_key = load_embeddings_api_key(data_root)
+    return build_provider(config, data_root), embeddings_api_key
+
+
+@router.post("/{source_id}/highlights", response_model=HighlightProcessResult)
+def post_highlight_endpoint(source_id: str, payload: HighlightCreateRequest):
+    data_root = get_data_root()
+    record = get_source(data_root, source_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    highlight = Highlight(
+        id=f"h_{uuid.uuid4().hex[:10]}",
+        source_quote=payload.source_quote,
+        note=payload.note,
+        source_title=record.title,
+        source_url=read_source_url(data_root, source_id),
+        created_at=_now_iso(),
+    )
+    # The highlight itself always persists, even if extraction below fails —
+    # a saved highlight with a failed extraction is a visible, valid state
+    # (extraction_error in the response), never a silently-dropped one.
+    append_highlight(data_root, source_id, highlight)
+
+    try:
+        llm_provider, embeddings_api_key = _load_llm_and_embeddings(data_root)
+    except ConfigError as exc:
+        return HighlightProcessResult(highlight=highlight, extraction_error=str(exc))
+
+    return process_highlight(data_root, source_id, highlight, llm_provider, embeddings_api_key)
+
+
+@router.patch("/{source_id}/highlights/{highlight_id}", response_model=HighlightProcessResult)
+def patch_highlight_endpoint(source_id: str, highlight_id: str, payload: HighlightUpdateRequest):
+    data_root = get_data_root()
+    if get_source(data_root, source_id) is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    updated = update_highlight_note(data_root, source_id, highlight_id, payload.note)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+
+    # A changed note is a new signal worth re-processing (Decision 6): clear this
+    # highlight's old provenance links first so re-extraction starts clean,
+    # rather than accumulating links to concepts its previous note produced.
+    # init_db is called here too (not just inside process_highlight below)
+    # because the original POST may have hit a ConfigError before ever reaching
+    # process_highlight, leaving graph.db uninitialized — this delete would
+    # otherwise fail with "no such table" on that path.
+    db_path = graph_db_path(data_root)
+    init_db(db_path)
+    delete_concept_highlights_for_highlight(db_path, highlight_id)
+
+    try:
+        llm_provider, embeddings_api_key = _load_llm_and_embeddings(data_root)
+    except ConfigError as exc:
+        return HighlightProcessResult(highlight=updated, extraction_error=str(exc))
+
+    return process_highlight(data_root, source_id, updated, llm_provider, embeddings_api_key)
