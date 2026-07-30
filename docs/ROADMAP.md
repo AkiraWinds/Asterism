@@ -67,7 +67,7 @@ infrastructure exists.
 - Decisions: `docs/updates/plans/7-26-phase4-content-analysis-decisions.md`
 - Prompt validation: `docs/updates/plans/7-26-phase4-prompt-validation.md`
 
-## Phase 5 — Chat / Copilot (DONE, pending merge to main)
+## Phase 5 — Chat / Copilot (DONE, merged to main)
 
 Interactive streaming chat, reasoning over the user's library. Scoped to **single-source chat only** — context is
 one source's `content.md` + `analysis.json`, with text selection auto-attached as context (co-learning panel per
