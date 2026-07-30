@@ -51,3 +51,27 @@ def load_config(data_root: Path) -> AgentConfig:
             raise ConfigError("config.json must set 'api_key' when strategy is 'api-key'")
 
     return AgentConfig(strategy=strategy, provider=provider, api_key=api_key)
+
+
+def load_embeddings_api_key(data_root: Path) -> str:
+    """Load the OpenAI embeddings API key, independent of the chat/completion
+    provider's strategy/provider/api_key fields (Anthropic has no embeddings
+    endpoint and CLI providers have no embedding capability at all, so this
+    is a separate, always-required key for the concept graph feature).
+    """
+    config_path = data_root / "config.json"
+    if not config_path.exists():
+        raise ConfigError(
+            f"config.json not found at {config_path}. Set 'embeddings_api_key' for the concept graph feature."
+        )
+
+    try:
+        data = json.loads(config_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ConfigError(f"config.json is not valid JSON: {exc}") from exc
+
+    api_key = data.get("embeddings_api_key")
+    if not api_key:
+        raise ConfigError("config.json must set 'embeddings_api_key' for the concept graph feature")
+
+    return api_key
