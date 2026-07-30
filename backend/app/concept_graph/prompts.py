@@ -7,6 +7,19 @@ raw embedding similarity alone would be borderline (that doc's finding #2).
 """
 
 import json
+import re
+
+
+def _strip_markdown_fence(raw: str) -> str:
+    """Strip a leading/trailing markdown code fence from an LLM response, if
+    present. Real gpt-4o output commonly wraps JSON in ```json ... ``` (or a
+    plain ``` ... ``` fence with no language tag) despite being told to
+    "Respond with JSON only" — json.loads then fails immediately on the
+    leading backtick. Tolerates surrounding whitespace; passes strings
+    without a fence through unchanged.
+    """
+    match = re.match(r"^\s*```(?:json)?\s*\n(.*)\n\s*```\s*$", raw, re.DOTALL)
+    return match.group(1) if match else raw
 
 
 def build_extraction_prompt(source_quote: str, note: str | None) -> str:
@@ -53,7 +66,7 @@ def _validate_shape(parsed: object, required_keys: set[str], label: str) -> list
 
 def parse_extraction_response(raw: str) -> list[dict]:
     try:
-        parsed = json.loads(raw)
+        parsed = json.loads(_strip_markdown_fence(raw))
     except json.JSONDecodeError as exc:
         raise ValueError(f"Malformed extraction response: {exc}") from exc
     return _validate_shape(parsed, _EXTRACTION_KEYS, "extraction")
@@ -86,7 +99,7 @@ def build_dedup_prompt(
 
 def parse_dedup_response(raw: str) -> list[dict]:
     try:
-        parsed = json.loads(raw)
+        parsed = json.loads(_strip_markdown_fence(raw))
     except json.JSONDecodeError as exc:
         raise ValueError(f"Malformed dedup response: {exc}") from exc
     return _validate_shape(parsed, _DEDUP_KEYS, "dedup")

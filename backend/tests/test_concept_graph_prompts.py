@@ -50,6 +50,32 @@ def test_parse_extraction_response_raises_on_missing_key():
         parse_extraction_response(raw)
 
 
+def test_parse_extraction_response_strips_json_markdown_fence():
+    # Exact raw response reported by the user from a real gpt-4o call.
+    raw = (
+        '```json\n[\n    {\n        "term": "Future Vision",\n        '
+        '"definition": "A statement indicating a perspective or prediction about what is to come.",\n        '
+        '"self_relevant": false,\n        "relationship": "none"\n    }\n]\n```'
+    )
+    concepts = parse_extraction_response(raw)
+    assert concepts[0]["term"] == "Future Vision"
+    assert concepts[0]["self_relevant"] is False
+
+
+def test_parse_extraction_response_strips_plain_markdown_fence():
+    raw = "```\n" + json.dumps([
+        {"term": "Local-first storage", "definition": "Filesystem is the source of truth.",
+         "self_relevant": False, "relationship": "none"}
+    ]) + "\n```"
+    concepts = parse_extraction_response(raw)
+    assert concepts[0]["term"] == "Local-first storage"
+
+
+def test_parse_extraction_response_raises_on_malformed_json_inside_fence():
+    with pytest.raises(ValueError):
+        parse_extraction_response("```json\nnot json\n```")
+
+
 def test_build_dedup_prompt_includes_note_override_instruction():
     neighbors = [{"id": "c_1", "term": "Original vs. derived data model", "definition": "def"}]
     prompt = build_dedup_prompt(
@@ -66,6 +92,27 @@ def test_parse_dedup_response_returns_judgments():
     judgments = parse_dedup_response(raw)
     assert judgments[0]["judgment"] == "related_distinct"
     assert judgments[0]["confidence"] == "high"
+
+
+def test_parse_dedup_response_strips_json_markdown_fence():
+    raw = "```json\n" + json.dumps([
+        {"existing_concept_id": "c_1", "judgment": "related_distinct", "confidence": "high", "summary": "s"}
+    ]) + "\n```"
+    judgments = parse_dedup_response(raw)
+    assert judgments[0]["judgment"] == "related_distinct"
+
+
+def test_parse_dedup_response_strips_plain_markdown_fence():
+    raw = "```\n" + json.dumps([
+        {"existing_concept_id": "c_1", "judgment": "same", "confidence": "high", "summary": "s"}
+    ]) + "\n```"
+    judgments = parse_dedup_response(raw)
+    assert judgments[0]["judgment"] == "same"
+
+
+def test_parse_dedup_response_raises_on_malformed_json_inside_fence():
+    with pytest.raises(ValueError):
+        parse_dedup_response("```json\nnot json\n```")
 
 
 def test_parse_dedup_response_raises_on_object_instead_of_list():
