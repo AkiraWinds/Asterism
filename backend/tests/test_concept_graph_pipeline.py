@@ -116,3 +116,75 @@ def test_process_highlight_sets_extraction_error_on_malformed_response(tmp_path:
     assert result.extraction_error is not None
     assert result.concepts == []
     assert list_concepts(db_path) == []
+
+
+def test_process_highlight_creates_new_concept_on_new_judgment_with_neighbors(tmp_path: Path):
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "Unrelated topic", "def", [0.9, 0.9], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.side_effect = [
+        json.dumps([{"term": "Brand new concept", "definition": "def", "self_relevant": False, "relationship": "none"}]),
+        json.dumps([{"existing_concept_id": "c_existing", "judgment": "new", "confidence": "high", "summary": "unrelated"}]),
+    ]
+
+    with patch(
+        "app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.2]
+    ):
+        result = process_highlight(tmp_path, "source_a", _make_highlight(), provider, "sk-embed")
+
+    assert result.extraction_error is None
+    assert len(result.concepts) == 1
+    assert result.concepts[0].term == "Brand new concept"
+    assert len(list_concepts(db_path)) == 2
+    assert result.edges == []
+    assert result.queued == []
+
+
+def test_process_highlight_sets_extraction_error_on_malformed_dedup_response(tmp_path: Path):
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "Local-first storage", "def", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.side_effect = [
+        json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False, "relationship": "none"}]),
+        "not json",
+    ]
+
+    with patch(
+        "app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.21]
+    ):
+        result = process_highlight(tmp_path, "source_a", _make_highlight(), provider, "sk-embed")
+
+    assert result.extraction_error is not None
+    assert result.concepts == []
+    assert result.edges == []
+    assert result.queued == []
+    # Only the pre-seeded existing concept should remain — nothing new got committed.
+    assert len(list_concepts(db_path)) == 1
+
+
+def test_process_highlight_sets_extraction_error_on_unknown_existing_concept_id(tmp_path: Path):
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "Local-first storage", "def", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.side_effect = [
+        json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False, "relationship": "none"}]),
+        json.dumps([{"existing_concept_id": "c_does_not_exist", "judgment": "same", "confidence": "high", "summary": "hallucinated id"}]),
+    ]
+
+    with patch(
+        "app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.21]
+    ):
+        result = process_highlight(tmp_path, "source_a", _make_highlight(), provider, "sk-embed")
+
+    assert result.extraction_error is not None
+    assert result.concepts == []
+    assert len(list_concepts(db_path)) == 1
