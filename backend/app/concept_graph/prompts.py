@@ -30,11 +30,33 @@ def build_extraction_prompt(source_quote: str, note: str | None) -> str:
     return "\n\n".join(parts)
 
 
+_EXTRACTION_KEYS = {"term", "definition", "self_relevant", "relationship"}
+_DEDUP_KEYS = {"existing_concept_id", "judgment", "confidence", "summary"}
+
+
+def _validate_shape(parsed: object, required_keys: set[str], label: str) -> list[dict]:
+    """Validate that a parsed LLM response is a list of dicts with the
+    required keys. Raises ValueError (same type json.JSONDecodeError is
+    converted to) so callers can rely on a single except ValueError to catch
+    both syntax and shape problems in malformed LLM output.
+    """
+    if not isinstance(parsed, list):
+        raise ValueError(f"Malformed {label} response: expected a JSON list, got {type(parsed).__name__}")
+    for i, item in enumerate(parsed):
+        if not isinstance(item, dict):
+            raise ValueError(f"Malformed {label} response: item {i} is not a JSON object, got {type(item).__name__}")
+        missing = required_keys - item.keys()
+        if missing:
+            raise ValueError(f"Malformed {label} response: item {i} missing keys {sorted(missing)}")
+    return parsed
+
+
 def parse_extraction_response(raw: str) -> list[dict]:
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ValueError(f"Malformed extraction response: {exc}") from exc
+    return _validate_shape(parsed, _EXTRACTION_KEYS, "extraction")
 
 
 def build_dedup_prompt(
@@ -64,6 +86,7 @@ def build_dedup_prompt(
 
 def parse_dedup_response(raw: str) -> list[dict]:
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ValueError(f"Malformed dedup response: {exc}") from exc
+    return _validate_shape(parsed, _DEDUP_KEYS, "dedup")

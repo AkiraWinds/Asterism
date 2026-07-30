@@ -37,6 +37,19 @@ def test_parse_extraction_response_raises_on_malformed_json():
         parse_extraction_response("not json")
 
 
+def test_parse_extraction_response_raises_on_object_instead_of_list():
+    raw = json.dumps({"term": "Local-first storage", "definition": "def",
+                       "self_relevant": False, "relationship": "none"})
+    with pytest.raises(ValueError):
+        parse_extraction_response(raw)
+
+
+def test_parse_extraction_response_raises_on_missing_key():
+    raw = json.dumps([{"term": "Local-first storage", "definition": "def", "self_relevant": False}])
+    with pytest.raises(ValueError):
+        parse_extraction_response(raw)
+
+
 def test_build_dedup_prompt_includes_note_override_instruction():
     neighbors = [{"id": "c_1", "term": "Original vs. derived data model", "definition": "def"}]
     prompt = build_dedup_prompt(
@@ -53,3 +66,15 @@ def test_parse_dedup_response_returns_judgments():
     judgments = parse_dedup_response(raw)
     assert judgments[0]["judgment"] == "related_distinct"
     assert judgments[0]["confidence"] == "high"
+
+
+def test_parse_dedup_response_raises_on_object_instead_of_list():
+    raw = json.dumps({"existing_concept_id": "c_1", "judgment": "same", "confidence": "high", "summary": "s"})
+    with pytest.raises(ValueError):
+        parse_dedup_response(raw)
+
+
+def test_parse_dedup_response_raises_on_missing_key():
+    raw = json.dumps([{"existing_concept_id": "c_1", "judgment": "same", "confidence": "high"}])
+    with pytest.raises(ValueError):
+        parse_dedup_response(raw)
