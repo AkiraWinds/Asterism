@@ -146,8 +146,19 @@ export function SelectionToolbar({
   async function handleSaveAsNote() {
     setSaveError(null);
     try {
-      await saveHighlight(sourceId, selectedText, null);
-      resetToolbar();
+      const result = await saveHighlight(sourceId, selectedText, null);
+      if (result.extraction_error) {
+        // The highlight itself saved fine — only concept extraction failed
+        // (e.g. missing embeddings_api_key, LLM/provider error). Per the
+        // design doc this must be a visible state, not a silently-dropped
+        // one, so keep the toolbar open and surface it instead of calling
+        // resetToolbar() as if nothing happened.
+        if (isActiveRef.current) {
+          setSaveError(`Saved, but concept extraction failed: ${result.extraction_error}`);
+        }
+      } else {
+        resetToolbar();
+      }
     } catch (err) {
       if (isActiveRef.current) {
         setSaveError(err instanceof Error ? err.message : "Failed to save highlight");
@@ -158,8 +169,16 @@ export function SelectionToolbar({
   async function handleSubmitComment() {
     setSaveError(null);
     try {
-      await saveHighlight(sourceId, selectedText, commentText.trim() || null);
-      resetToolbar();
+      const result = await saveHighlight(sourceId, selectedText, commentText.trim() || null);
+      if (result.extraction_error) {
+        // See handleSaveAsNote above: the highlight persisted, but concept
+        // extraction failed. Leave the toolbar open so the user sees why.
+        if (isActiveRef.current) {
+          setSaveError(`Saved, but concept extraction failed: ${result.extraction_error}`);
+        }
+      } else {
+        resetToolbar();
+      }
     } catch (err) {
       if (isActiveRef.current) {
         setSaveError(err instanceof Error ? err.message : "Failed to save highlight");
