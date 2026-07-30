@@ -36,5 +36,6 @@
     "arstechnica.com",
     "theguardian.com"
   ],
-  "agentProvider": "claude"
+  "agentProvider": "claude",
+  "embeddings_api_key": ""
 }
