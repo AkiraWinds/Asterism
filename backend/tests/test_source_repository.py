@@ -14,9 +14,14 @@ from app.repositories.source_repository import (
     write_analysis,
     append_chat_turn,
     read_chat,
+    append_highlight,
+    read_highlights,
+    read_source_url,
+    update_highlight_note,
 )
 from app.schemas.analysis import AnalysisResult, Claim, Digest
 from app.schemas.chat import ChatHistory, ChatTurn
+from app.schemas.highlight import Highlight
 
 
 def test_create_source_writes_meta_and_content(tmp_path: Path):
@@ -220,3 +225,49 @@ def test_append_chat_turn_creates_and_appends(tmp_path: Path):
     history = read_chat(tmp_path, source_id)
     assert [t.role for t in history.turns] == ["user", "assistant"]
     assert history.turns[1].content == "hello back"
+
+
+def test_read_highlights_returns_empty_history_when_no_file(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="C")
+    history = read_highlights(tmp_path, record.id)
+    assert history.highlights == []
+
+
+def test_append_highlight_creates_and_appends(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="C")
+    h1 = Highlight(id="h_1", source_quote="first", source_title="T", created_at="2026-07-30T00:00:00Z")
+    h2 = Highlight(id="h_2", source_quote="second", note="a note", source_title="T", created_at="2026-07-30T00:00:01Z")
+
+    append_highlight(tmp_path, record.id, h1)
+    append_highlight(tmp_path, record.id, h2)
+
+    history = read_highlights(tmp_path, record.id)
+    assert [h.id for h in history.highlights] == ["h_1", "h_2"]
+    assert history.highlights[1].note == "a note"
+
+
+def test_read_source_url_returns_none_for_pasted_text_source(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="C")
+    assert read_source_url(tmp_path, record.id) is None
+
+
+def test_read_source_url_returns_url_for_url_ingested_source(tmp_path: Path):
+    from app.repositories.source_repository import create_source_from_url
+    record = create_source_from_url(tmp_path, "https://example.com/a", "T", "<html></html>", "content")
+    assert read_source_url(tmp_path, record.id) == "https://example.com/a"
+
+
+def test_update_highlight_note_changes_note_and_returns_updated_highlight(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="C")
+    h1 = Highlight(id="h_1", source_quote="first", source_title="T", created_at="2026-07-30T00:00:00Z")
+    append_highlight(tmp_path, record.id, h1)
+
+    updated = update_highlight_note(tmp_path, record.id, "h_1", "a new note")
+
+    assert updated.note == "a new note"
+    assert read_highlights(tmp_path, record.id).highlights[0].note == "a new note"
+
+
+def test_update_highlight_note_returns_none_for_unknown_highlight(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="C")
+    assert update_highlight_note(tmp_path, record.id, "does-not-exist", "note") is None
