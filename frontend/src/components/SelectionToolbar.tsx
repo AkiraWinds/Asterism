@@ -15,7 +15,7 @@
 // (dismiss button / after send), not something that fires just because the
 // live selection collapsed (e.g. clicking into the chat input). See
 // docs/superpowers/plans/2026-07-29-chat-copilot.md final-review fix notes.
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { saveHighlight } from "@/lib/api";
 
 export function SelectionToolbar({
@@ -38,20 +38,32 @@ export function SelectionToolbar({
   // (since the toolbar sits outside the actual selected-text range) but must
   // not be treated as the user abandoning their selection.
   const toolbarRef = useRef<HTMLDivElement | null>(null);
+  // Tracks whether the toolbar currently open is still "live" for the async
+  // save/comment handlers below. Set true whenever the toolbar opens for a
+  // selection, false the instant resetToolbar runs (Escape, outside click,
+  // or a successful save). A save/comment request that was in flight when
+  // the user dismissed the toolbar checks this before writing setSaveError
+  // into a component that's now rendering null, avoiding a stray state
+  // update landing on a no-longer-visible toolbar.
+  const isActiveRef = useRef(false);
+
+  // The single definition of "reset all toolbar-owned state." Every close
+  // path (Escape, outside mouseup, a new out-of-container selection, and the
+  // two async save handlers below) calls this exact function — no inline
+  // duplicated field lists anywhere. Defined at component-body level (not
+  // inside the effect) via useCallback with a stable empty-deps identity so
+  // handleSaveAsNote/handleSubmitComment — which live outside the effect's
+  // closure — can call it too.
+  const resetToolbar = useCallback(() => {
+    isActiveRef.current = false;
+    setPosition(null);
+    setSelectedText("");
+    setCommentMode(false);
+    setCommentText("");
+    setSaveError(null);
+  }, []);
 
   useEffect(() => {
-    // Resets all toolbar-owned state. Called only from explicit "the user is
-    // done with this toolbar" triggers (Escape, a genuine click outside both
-    // the toolbar and the container, or a successful save) — never merely
-    // because the live browser selection collapsed. See file header comment.
-    function resetToolbar() {
-      setPosition(null);
-      setSelectedText("");
-      setCommentMode(false);
-      setCommentText("");
-      setSaveError(null);
-    }
-
     function handleSelectionChange() {
       const selection = window.getSelection();
       const container = containerRef.current;
@@ -61,7 +73,7 @@ export function SelectionToolbar({
         // Selection collapsed to empty. This fires on every click inside the
         // toolbar itself (e.g. "Add comment"), since that click necessarily
         // lands outside the real selected-text DOM range. Do NOT clear state
-        // here — closing is handled explicitly via handlePointerDown/Escape/
+        // here — closing is handled explicitly via handlePointerUp/Escape/
         // save below.
         return;
       }
@@ -75,6 +87,7 @@ export function SelectionToolbar({
       }
 
       const rect = range.getBoundingClientRect();
+      isActiveRef.current = true;
       setPosition({ top: Math.max(8, rect.top - 40), left: rect.left });
       setSelectedText(text);
       setCommentMode(false);
@@ -83,13 +96,36 @@ export function SelectionToolbar({
       onHighlightSelected(text);
     }
 
-    function handlePointerDown(event: MouseEvent) {
-      const container = containerRef.current;
+    // Fires on mouseup rather than mousedown so that, by the time this runs,
+    // the browser has already finalized window.getSelection() for the click
+    // that just happened — for a plain click that collapses selection (no
+    // drag) selection is already empty; for a completed drag-to-select it's
+    // already the new range (and handleSelectionChange's selectionchange
+    // listener, which fires during the drag, has already opened/repositioned
+    // the toolbar for it). That means this handler only has to ask one
+    // question: is there still a non-empty selection right now?
+    //   - No (user single-clicked anywhere — inside or outside the
+    //     container — to dismiss, without dragging out a new selection):
+    //     close the toolbar. This is the fix for the "stuck toolbar" bug —
+    //     a plain click inside the container used to be treated the same as
+    //     a click on the toolbar itself and silently ignored.
+    //   - Yes, and the click landed inside the toolbar's own DOM node
+    //     (e.g. "Add comment"): keep it open — clicking the toolbar's own
+    //     controls must never dismiss it.
+    //   - Yes, elsewhere: a new/extended selection exists; handleSelectionChange
+    //     already positioned the toolbar for it, so do nothing here.
+    function handlePointerUp(event: MouseEvent) {
       const toolbar = toolbarRef.current;
       const target = event.target as Node;
-      // A click inside the toolbar or the source container isn't "leaving" —
-      // only a click genuinely outside both closes the toolbar.
-      if (toolbar?.contains(target) || container?.contains(target)) return;
+      const selection = window.getSelection();
+      const text = selection?.toString().trim() ?? "";
+      if (text.length > 0) {
+        // A non-empty selection survives this click. If the click was on the
+        // toolbar itself, that's expected (see file header) and not a new
+        // selection — leave state alone either way.
+        return;
+      }
+      if (toolbar?.contains(target)) return;
       resetToolbar();
     }
 
@@ -98,25 +134,24 @@ export function SelectionToolbar({
     }
 
     document.addEventListener("selectionchange", handleSelectionChange);
-    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("mouseup", handlePointerUp);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("selectionchange", handleSelectionChange);
-      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("mouseup", handlePointerUp);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [containerRef, onHighlightSelected]);
+  }, [containerRef, onHighlightSelected, resetToolbar]);
 
   async function handleSaveAsNote() {
     setSaveError(null);
     try {
       await saveHighlight(sourceId, selectedText, null);
-      setPosition(null);
-      setSelectedText("");
-      setCommentMode(false);
-      setCommentText("");
+      resetToolbar();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save highlight");
+      if (isActiveRef.current) {
+        setSaveError(err instanceof Error ? err.message : "Failed to save highlight");
+      }
     }
   }
 
@@ -124,12 +159,11 @@ export function SelectionToolbar({
     setSaveError(null);
     try {
       await saveHighlight(sourceId, selectedText, commentText.trim() || null);
-      setPosition(null);
-      setSelectedText("");
-      setCommentMode(false);
-      setCommentText("");
+      resetToolbar();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save highlight");
+      if (isActiveRef.current) {
+        setSaveError(err instanceof Error ? err.message : "Failed to save highlight");
+      }
     }
   }
 
