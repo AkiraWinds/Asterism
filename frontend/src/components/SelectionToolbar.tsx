@@ -32,6 +32,13 @@ export function SelectionToolbar({
   const [commentMode, setCommentMode] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Transient success confirmation ("Saved — 2 concepts added") shown after a
+  // highlight save that didn't hit extraction_error. Unlike saveError (which
+  // stays until the user explicitly dismisses the toolbar), this auto-clears
+  // by resetting the toolbar itself after a short delay — see
+  // handleSaveAsNote/handleSubmitComment below.
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+  const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The floating toolbar's own root DOM node. Needed so the outside-click
   // dismiss logic below can tell "user clicked away" apart from "user clicked
   // a button inside the toolbar" — the latter collapses window.getSelection()
@@ -55,13 +62,38 @@ export function SelectionToolbar({
   // handleSaveAsNote/handleSubmitComment — which live outside the effect's
   // closure — can call it too.
   const resetToolbar = useCallback(() => {
+    if (resetTimeoutRef.current) {
+      clearTimeout(resetTimeoutRef.current);
+      resetTimeoutRef.current = null;
+    }
     isActiveRef.current = false;
     setPosition(null);
     setSelectedText("");
     setCommentMode(false);
     setCommentText("");
     setSaveError(null);
+    setSaveSuccessMessage(null);
   }, []);
+
+  // Any pending "auto-dismiss after showing success" timeout must be cleared
+  // if the component unmounts first (e.g. the user navigates away mid-delay),
+  // to avoid a setState-after-unmount warning.
+  useEffect(() => {
+    return () => {
+      if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+    };
+  }, []);
+
+  function summarizeSave(result: { concepts: unknown[]; queued: unknown[] }): string {
+    const parts: string[] = [];
+    if (result.concepts.length > 0) {
+      parts.push(`${result.concepts.length} concept${result.concepts.length === 1 ? "" : "s"} added`);
+    }
+    if (result.queued.length > 0) {
+      parts.push(`${result.queued.length} pending review`);
+    }
+    return parts.length > 0 ? `Saved — ${parts.join(", ")}` : "Saved";
+  }
 
   useEffect(() => {
     function handleSelectionChange() {
@@ -156,8 +188,11 @@ export function SelectionToolbar({
         if (isActiveRef.current) {
           setSaveError(`Saved, but concept extraction failed: ${result.extraction_error}`);
         }
-      } else {
-        resetToolbar();
+      } else if (isActiveRef.current) {
+        // Brief visible confirmation of what happened, then reset as before —
+        // delayed rather than immediate so the message actually gets seen.
+        setSaveSuccessMessage(summarizeSave(result));
+        resetTimeoutRef.current = setTimeout(resetToolbar, 2000);
       }
     } catch (err) {
       if (isActiveRef.current) {
@@ -176,8 +211,11 @@ export function SelectionToolbar({
         if (isActiveRef.current) {
           setSaveError(`Saved, but concept extraction failed: ${result.extraction_error}`);
         }
-      } else {
-        resetToolbar();
+      } else if (isActiveRef.current) {
+        // Brief visible confirmation of what happened, then reset as before —
+        // delayed rather than immediate so the message actually gets seen.
+        setSaveSuccessMessage(summarizeSave(result));
+        resetTimeoutRef.current = setTimeout(resetToolbar, 2000);
       }
     } catch (err) {
       if (isActiveRef.current) {
@@ -222,6 +260,7 @@ export function SelectionToolbar({
         </div>
       )}
       {saveError && <p className="px-2 text-xs text-red-600 dark:text-red-400">{saveError}</p>}
+      {saveSuccessMessage && <p className="px-2 text-xs text-green-600 dark:text-green-400">{saveSuccessMessage}</p>}
     </div>
   );
 }
