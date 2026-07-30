@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from app.concept_graph.pipeline import process_highlight
 from app.graph_store.store import graph_db_path, init_db, list_concepts, list_edges, list_review_queue
+from app.providers.base import ProviderConfigError
 from app.schemas.highlight import Highlight
 
 
@@ -166,6 +167,23 @@ def test_process_highlight_sets_extraction_error_on_malformed_dedup_response(tmp
     assert result.queued == []
     # Only the pre-seeded existing concept should remain — nothing new got committed.
     assert len(list_concepts(db_path)) == 1
+
+
+def test_process_highlight_sets_extraction_error_on_provider_error_during_extraction(tmp_path: Path):
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+
+    provider = MagicMock()
+    provider.complete.side_effect = ProviderConfigError("Error code: 401 - invalid x-api-key")
+
+    result = process_highlight(tmp_path, "source_a", _make_highlight(), provider, "sk-embed")
+
+    assert result.extraction_error is not None
+    assert "401" in result.extraction_error
+    assert result.concepts == []
+    assert result.edges == []
+    assert result.queued == []
+    assert list_concepts(db_path) == []
 
 
 def test_process_highlight_sets_extraction_error_on_unknown_existing_concept_id(tmp_path: Path):

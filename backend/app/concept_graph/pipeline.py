@@ -63,7 +63,7 @@ def process_highlight(
     try:
         raw_extraction = llm_provider.complete(build_extraction_prompt(highlight.source_quote, highlight.note))
         extracted = parse_extraction_response(raw_extraction)
-    except ValueError as exc:
+    except (ValueError, ProviderError) as exc:
         return HighlightProcessResult(highlight=highlight, extraction_error=str(exc))
 
     created_concepts: list[ConceptNode] = []
