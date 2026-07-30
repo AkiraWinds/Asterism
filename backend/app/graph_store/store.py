@@ -147,6 +147,23 @@ def repoint_concept_highlights(db_path: Path, old_concept_id: str, new_concept_i
         conn.commit()
 
 
+def repoint_edges(db_path: Path, old_concept_id: str, new_concept_id: str) -> None:
+    """Retarget any edge endpoints pointing at old_concept_id, e.g. before
+    deleting a concept merged into another — otherwise the deleted concept's
+    id survives as a dangling from_id/to_id that GET /graph would still
+    return, crashing the client-side force-graph renderer."""
+    with _connect(db_path) as conn:
+        conn.execute(
+            "UPDATE edges SET from_id = ? WHERE from_id = ?",
+            (new_concept_id, old_concept_id),
+        )
+        conn.execute(
+            "UPDATE edges SET to_id = ? WHERE to_id = ?",
+            (new_concept_id, old_concept_id),
+        )
+        conn.commit()
+
+
 def insert_edge(db_path: Path, edge_id: str, from_id: str, to_id: str, edge_type: str, summary: str) -> None:
     with _connect(db_path) as conn:
         conn.execute(

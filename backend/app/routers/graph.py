@@ -21,6 +21,7 @@ from app.graph_store.store import (
     list_edges,
     list_review_queue,
     repoint_concept_highlights,
+    repoint_edges,
 )
 from app.schemas.graph import ConceptNode, Edge, GraphResponse, ReviewQueueEntry, ReviewQueueResolveRequest
 
@@ -42,9 +43,15 @@ def get_graph_endpoint() -> GraphResponse:
         ConceptNode(id=c["id"], term=c["term"], definition=c["definition"], self_relevant=bool(c["self_relevant"]))
         for c in list_concepts(db_path)
     ]
+    node_ids = {n.id for n in nodes}
+    # Defensive filter: only return edges whose endpoints both still exist as
+    # nodes. This is cheap insurance against any dangling edge (e.g. a merge
+    # path that failed to repoint edges) reaching the client — an edge
+    # pointing at a nonexistent node crashes react-force-graph-2d.
     edges = [
         Edge(id=e["id"], from_id=e["from_id"], to_id=e["to_id"], type=e["type"], summary=e["summary"])
         for e in list_edges(db_path)
+        if e["from_id"] in node_ids and e["to_id"] in node_ids
     ]
     return GraphResponse(nodes=nodes, edges=edges)
 
@@ -71,6 +78,7 @@ def resolve_review_queue_endpoint(entry_id: str, payload: ReviewQueueResolveRequ
 
     if payload.action == "merge":
         repoint_concept_highlights(db_path, entry["candidate_concept_id"], entry["existing_concept_id"])
+        repoint_edges(db_path, entry["candidate_concept_id"], entry["existing_concept_id"])
         delete_concept(db_path, entry["candidate_concept_id"])
     else:
         edge_id = f"e_{uuid.uuid4().hex[:10]}"

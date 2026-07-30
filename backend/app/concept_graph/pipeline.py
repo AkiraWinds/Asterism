@@ -47,6 +47,37 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _select_judgment(judgments: list[dict]) -> dict:
+    """Pick which per-neighbor dedup judgment to act on.
+
+    The dedup prompt returns one judgment per neighbor considered, but the
+    pipeline only acts on a single one. A "same" judgment anywhere in the list
+    represents a real duplicate and must never be discarded just because an
+    earlier neighbor in the list happened to be judged "new"/"related_distinct"
+    first — that would silently create a duplicate concept. Preference order:
+    1. any "same" judgment (a real dup takes priority over everything else)
+    2. "related_distinct" with the highest confidence (high over medium)
+    3. any "new" judgment
+    4. otherwise, the first entry (defensive fallback for unexpected shapes)
+    """
+    if not judgments:
+        raise ValueError("dedup response contained no judgments")
+
+    for j in judgments:
+        if j.get("judgment") == "same":
+            return j
+
+    related = [j for j in judgments if j.get("judgment") == "related_distinct"]
+    if related:
+        return max(related, key=lambda j: 1 if j.get("confidence") == "high" else 0)
+
+    for j in judgments:
+        if j.get("judgment") == "new":
+            return j
+
+    return judgments[0]
+
+
 def process_highlight(
     data_root: Path,
     source_id: str,
@@ -96,7 +127,7 @@ def process_highlight(
             )
             judgments = parse_dedup_response(raw_dedup)
 
-            best = judgments[0]
+            best = _select_judgment(judgments)
             existing = get_concept(db_path, best["existing_concept_id"])
             if existing is None:
                 # The dedup prompt only ever hands the model IDs drawn from `neighbors`,
@@ -121,7 +152,7 @@ def process_highlight(
 
             if best["confidence"] == "high":
                 edge_id = f"e_{uuid.uuid4().hex[:10]}"
-                edge_type = _RELATIONSHIP_TO_EDGE_TYPE[item["relationship"]]
+                edge_type = _RELATIONSHIP_TO_EDGE_TYPE.get(item["relationship"], "related")
                 insert_edge(db_path, edge_id, concept_node.id, existing["id"], edge_type, best["summary"])
                 created_edges.append(Edge(id=edge_id, from_id=concept_node.id, to_id=existing["id"], type=edge_type, summary=best["summary"]))
             else:

@@ -34,6 +34,34 @@ def test_process_highlight_creates_new_concept_when_no_neighbors_exist(tmp_path:
     assert result.queued == []
 
 
+def test_process_highlight_falls_back_to_related_edge_type_for_unknown_relationship(tmp_path: Path):
+    # `_RELATIONSHIP_TO_EDGE_TYPE` is keyed on the extraction prompt's expected
+    # relationship values, but the LLM can return anything as a raw string
+    # (_validate_shape only checks key presence, not value membership). A
+    # dict-index lookup would raise KeyError (uncaught) rather than degrading
+    # like the other malformed-LLM-output cases — this must fall back to
+    # "related" instead of crashing.
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "Local-first storage", "def", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.side_effect = [
+        json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False, "relationship": "related"}]),
+        json.dumps([{"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "high", "summary": "related"}]),
+    ]
+
+    with patch(
+        "app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.21]
+    ):
+        result = process_highlight(tmp_path, "source_a", _make_highlight(), provider, "sk-embed")
+
+    assert result.extraction_error is None
+    assert len(result.edges) == 1
+    assert result.edges[0].type == "related"
+
+
 def test_process_highlight_creates_edge_on_high_confidence_related_distinct(tmp_path: Path):
     db_path = graph_db_path(tmp_path)
     init_db(db_path)
@@ -184,6 +212,69 @@ def test_process_highlight_sets_extraction_error_on_provider_error_during_extrac
     assert result.edges == []
     assert result.queued == []
     assert list_concepts(db_path) == []
+
+
+def test_process_highlight_sets_extraction_error_on_empty_dedup_judgments(tmp_path: Path):
+    # An empty JSON list `[]` passes _validate_shape (nothing to check per-item)
+    # but `judgments[0]` would previously raise an unhandled IndexError instead
+    # of degrading like every other malformed-LLM-output case.
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "Local-first storage", "def", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.side_effect = [
+        json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False, "relationship": "none"}]),
+        json.dumps([]),
+    ]
+
+    with patch(
+        "app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.21]
+    ):
+        result = process_highlight(tmp_path, "source_a", _make_highlight(), provider, "sk-embed")
+
+    assert result.extraction_error is not None
+    assert result.concepts == []
+    assert len(list_concepts(db_path)) == 1
+
+
+def test_process_highlight_prefers_same_judgment_over_earlier_new_judgment(tmp_path: Path):
+    # The dedup prompt returns one judgment per neighbor considered. If an
+    # earlier neighbor in the list was judged "new" but a later neighbor was
+    # judged "same" (a real duplicate), the pipeline must not silently pick
+    # the first entry and create a duplicate concept — the "same" judgment
+    # anywhere in the list must win.
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_other", "Some other concept", "def", [0.5, 0.5], False, "2026-07-30T00:00:00Z")
+    insert_concept(db_path, "c_existing", "AI-first triage", "def", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.side_effect = [
+        json.dumps([{"term": "AI-first triage", "definition": "def restated", "self_relevant": False, "relationship": "none"}]),
+        json.dumps([
+            {"existing_concept_id": "c_other", "judgment": "new", "confidence": "high", "summary": "unrelated"},
+            {"existing_concept_id": "c_existing", "judgment": "same", "confidence": "high", "summary": "identical"},
+        ]),
+    ]
+
+    with patch(
+        "app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.2]
+    ):
+        result = process_highlight(tmp_path, "source_a", _make_highlight(), provider, "sk-embed")
+
+    assert result.extraction_error is None
+    assert result.concepts == []
+    # No new concept should have been created — only the two pre-seeded ones remain.
+    assert len(list_concepts(db_path)) == 2
+    # The highlight should be linked to the existing duplicate, not a new concept.
+    import sqlite3
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT concept_id FROM concept_highlights WHERE highlight_id = ?", (_make_highlight().id,)).fetchall()
+    assert [r["concept_id"] for r in rows] == ["c_existing"]
 
 
 def test_process_highlight_sets_extraction_error_on_unknown_existing_concept_id(tmp_path: Path):

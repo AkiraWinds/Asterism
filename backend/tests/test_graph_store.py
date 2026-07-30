@@ -18,6 +18,7 @@ from app.graph_store.store import (
     list_review_queue,
     nearest_neighbors,
     repoint_concept_highlights,
+    repoint_edges,
 )
 
 
@@ -89,6 +90,23 @@ def test_insert_and_list_edges(tmp_path: Path):
     edges = list_edges(db_path)
     assert len(edges) == 1
     assert edges[0]["type"] == "related"
+
+
+def test_repoint_edges_retargets_from_and_to_ids(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
+    insert_concept(db_path, "c_2", "GraphRAG", "def", [0.2], False, "2026-07-30T00:00:01Z")
+    insert_concept(db_path, "c_3", "Vector search", "def", [0.3], False, "2026-07-30T00:00:02Z")
+    insert_edge(db_path, "e_from", "c_2", "c_3", "related", "c_2 references c_3")
+    insert_edge(db_path, "e_to", "c_3", "c_2", "related", "c_3 references c_2")
+
+    repoint_edges(db_path, "c_2", "c_1")
+
+    edges = {e["id"]: e for e in list_edges(db_path)}
+    assert edges["e_from"]["from_id"] == "c_1"
+    assert edges["e_from"]["to_id"] == "c_3"
+    assert edges["e_to"]["from_id"] == "c_3"
+    assert edges["e_to"]["to_id"] == "c_1"
 
 
 def test_review_queue_insert_list_get_delete(tmp_path: Path):
