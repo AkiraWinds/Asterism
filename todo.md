@@ -17,6 +17,17 @@
       (do.html) — investigate the real limit (agent timeout? prompt size?) and fix.
 
 ### Compromises (revisit before launch / scaling)
+- **Digest concept extraction crashes the whole digest on an LLM-supplied "id" key**: `app/analysis/nodes.py:65`
+  does `Concept(id=f"c{i+1}", **item)` — if the digest LLM's JSON response ever includes its own `"id"` key on a
+  concept object, this raises a duplicate-kwarg `TypeError`. It's caught one level up (`nodes.py:72`) and degrades
+  to `digest_error` rather than crashing the whole `/analyze` request, but it nulls the *entire* digest
+  (summary+highlights+concepts) for one bad concept object, not just that item — and since Phase 6b-2 made digest
+  concepts load-bearing for the automatic Tier-1 concept graph, a nulled digest now also means zero graph
+  population for that source, with only `digest_error` (not `concept_graph_error`) as the signal. **Why:** found
+  during Phase 6b-2's final whole-branch review as a pre-existing, unrelated landmine — the real prompt
+  (`app/analysis/prompts.py`) never asks the model for an `id`, so this hasn't been observed in practice, but
+  LLMs occasionally echo schema-shaped fields unprompted. Revisit by using `Concept(**{**item, "id": f"c{i+1}"})`
+  instead of `Concept(id=..., **item)`, so a model-supplied `id` is overwritten rather than colliding.
 - **Content analysis — source-level connections use LLM coarse-filter, not vector search**: Phase 4's claim-level
   connection finder (new source's claims vs. the library) uses a two-phase LLM approach — cheap LLM call to shortlist
   ~5 candidate sources from brief summaries, then a detailed LLM call comparing full claim lists only against those
