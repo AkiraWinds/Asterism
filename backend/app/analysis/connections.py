@@ -64,7 +64,7 @@ def find_connections(state: AnalysisState) -> dict:
     connections = []
     for i, item in enumerate(raw_connections):
         try:
-            connections.append(Connection(id=f"conn{i + 1}", **item))
+            connections.append(Connection(**{**item, "id": f"conn{i + 1}"}))
         except TypeError:
             # Skip malformed connection data
             continue
