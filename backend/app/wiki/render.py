@@ -83,3 +83,29 @@ def render_sources_section(citations: list[dict]) -> str:
         else:
             lines.append(f"- {citation['label']}")
     return "\n".join(lines) + "\n"
+
+
+def render_index(pages: list[dict], attention_items: list[str]) -> str:
+    lines = ["# Wiki Index", ""]
+    for page in pages:
+        date = page["updated_at"][:10]
+        lines.append(
+            f"- [{page['term']}]({page['slug']}.md) — {page['definition']} · "
+            f"{page['source_highlight_count']} highlights · updated {date}"
+        )
+    if attention_items:
+        lines += ["", "## Needs attention", ""]
+        lines += [f"- {item}" for item in attention_items]
+    return "\n".join(lines) + "\n"
+
+
+def render_log_entry(
+    date: str, pages_updated: int, pages_new: int, orphans_flagged: int, errors_count: int,
+    change_lines: list[str],
+) -> str:
+    header = (
+        f"## [{date}] wiki-compile | {pages_updated} pages updated, {pages_new} new, "
+        f"{orphans_flagged} orphans flagged, {errors_count} errors"
+    )
+    lines = [header, *change_lines]
+    return "\n".join(lines) + "\n"

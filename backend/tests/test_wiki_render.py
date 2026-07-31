@@ -1,6 +1,6 @@
 from app.wiki.render import (
     extract_body, parse_wiki_page_frontmatter, render_wiki_page,
-    render_related_section, render_sources_section,
+    render_related_section, render_sources_section, render_index, render_log_entry,
 )
 
 
@@ -81,3 +81,36 @@ def test_render_sources_section_shows_quote_when_present():
     assert '- Article A — "an exact quote"' in section
     assert "- Article B" in section
     assert "Article B —" not in section
+
+
+def test_render_index_lists_pages_and_omits_attention_when_empty():
+    pages = [{
+        "term": "RAG", "slug": "rag", "definition": "Retrieval-augmented generation.",
+        "source_highlight_count": 5, "updated_at": "2026-07-31T10:00:00Z",
+    }]
+    index = render_index(pages, [])
+    assert "[RAG](rag.md)" in index
+    assert "5 highlights" in index
+    assert "updated 2026-07-31" in index
+    assert "Needs attention" not in index
+
+
+def test_render_index_includes_attention_section_when_present():
+    index = render_index([], ["Orphan: [X](x.md) — no edges to any other concept"])
+    assert "## Needs attention" in index
+    assert "Orphan: [X](x.md)" in index
+
+
+def test_render_log_entry_formats_summary_line_and_changes():
+    entry = render_log_entry(
+        date="2026-07-31", pages_updated=4, pages_new=1, orphans_flagged=0, errors_count=0,
+        change_lines=["- updated: RAG (3→5 highlights)", "- new: Prompt Caching"],
+    )
+    assert entry.startswith("## [2026-07-31] wiki-compile | 4 pages updated, 1 new, 0 orphans flagged, 0 errors\n")
+    assert "- updated: RAG (3→5 highlights)" in entry
+    assert entry.endswith("\n")
+
+
+def test_render_log_entry_handles_no_changes():
+    entry = render_log_entry("2026-07-31", 0, 0, 0, 0, [])
+    assert "0 pages updated, 0 new, 0 orphans flagged, 0 errors" in entry
