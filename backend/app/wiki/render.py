@@ -57,3 +57,29 @@ def extract_body(text: str) -> str:
         return text
     parts = text.split("---", 2)
     return parts[2].lstrip("\n") if len(parts) >= 3 else text
+
+
+def render_related_section(
+    edges: list[dict], concept_terms: dict[str, str], concept_slugs: dict[str, str], self_id: str,
+) -> str:
+    if not edges:
+        return ""
+    lines = ["## Related concepts", ""]
+    for edge in edges:
+        other_id = edge["to_id"] if edge["from_id"] == self_id else edge["from_id"]
+        other_term = concept_terms.get(other_id, other_id)
+        target = f"[{other_term}](./{concept_slugs[other_id]}.md)" if other_id in concept_slugs else other_term
+        lines.append(f"- **{edge['type']}** {target} — {edge['summary']}")
+    return "\n".join(lines) + "\n"
+
+
+def render_sources_section(citations: list[dict]) -> str:
+    if not citations:
+        return ""
+    lines = ["## Sources", ""]
+    for citation in citations:
+        if citation["quote"] is not None:
+            lines.append(f"- {citation['label']} — \"{citation['quote']}\"")
+        else:
+            lines.append(f"- {citation['label']}")
+    return "\n".join(lines) + "\n"

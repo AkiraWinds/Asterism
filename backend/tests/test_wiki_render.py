@@ -1,4 +1,7 @@
-from app.wiki.render import extract_body, parse_wiki_page_frontmatter, render_wiki_page
+from app.wiki.render import (
+    extract_body, parse_wiki_page_frontmatter, render_wiki_page,
+    render_related_section, render_sources_section,
+)
 
 
 def test_render_wiki_page_roundtrips_through_parse_frontmatter():
@@ -44,3 +47,37 @@ def test_extract_body_returns_text_after_frontmatter():
     )
     assert "The actual synthesis." in extract_body(text)
     assert "concept_id" not in extract_body(text)
+
+
+def test_render_related_section_empty_when_no_edges():
+    assert render_related_section([], {}, {}, "c_1") == ""
+
+
+def test_render_related_section_links_known_slug_and_plain_text_unknown():
+    edges = [
+        {"from_id": "c_1", "to_id": "c_2", "type": "extends", "summary": "builds on it"},
+        {"from_id": "c_3", "to_id": "c_1", "type": "contradicts", "summary": "disputes it"},
+    ]
+    concept_terms = {"c_1": "RAG", "c_2": "Vector Search", "c_3": "Fine-tuning"}
+    concept_slugs = {"c_2": "vector-search"}  # c_3 has no page yet
+
+    section = render_related_section(edges, concept_terms, concept_slugs, "c_1")
+
+    assert "[Vector Search](./vector-search.md)" in section
+    assert "Fine-tuning" in section
+    assert "[Fine-tuning]" not in section
+    assert "**extends**" in section and "**contradicts**" in section
+
+
+def test_render_sources_section_empty_when_no_citations():
+    assert render_sources_section([]) == ""
+
+
+def test_render_sources_section_shows_quote_when_present():
+    section = render_sources_section([
+        {"source_id": "s_1", "label": "Article A", "quote": "an exact quote"},
+        {"source_id": "s_2", "label": "Article B", "quote": None},
+    ])
+    assert '- Article A — "an exact quote"' in section
+    assert "- Article B" in section
+    assert "Article B —" not in section
