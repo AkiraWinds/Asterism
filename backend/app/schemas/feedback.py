@@ -43,4 +43,6 @@ class FeedbackRequest(BaseModel):
             raise ValueError("section is only valid when kind is 'critique'")
         if self.kind == "concept" and self.term is None:
             raise ValueError("term is required when kind is 'concept'")
+        if self.kind != "concept" and self.term is not None:
+            raise ValueError("term is only valid when kind is 'concept'")
         return self

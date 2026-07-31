@@ -70,6 +70,18 @@ def test_put_feedback_requires_term_for_concept(tmp_path: Path, monkeypatch):
     assert response.status_code == 422
 
 
+def test_put_feedback_rejects_term_for_non_concept(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    source_id = _create_source()
+
+    response = client.put(
+        f"/sources/{source_id}/feedback",
+        json={"kind": "claim", "content": "The sky is blue.", "term": "stray", "rating": "up"},
+    )
+
+    assert response.status_code == 422
+
+
 def test_promote_claim_creates_highlight_and_marks_promoted(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
     _write_config(tmp_path)
