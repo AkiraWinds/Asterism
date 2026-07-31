@@ -16,11 +16,13 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 export function AnalysisTabs({
+  sourceId,
   content,
   analysis,
   onRetry,
   retrying,
 }: {
+  sourceId: string;
   content: string;
   analysis: AnalysisResult;
   onRetry: () => void;
@@ -54,10 +56,17 @@ export function AnalysisTabs({
           </pre>
         )}
         {active === "digest" && (
-          <DigestView digest={analysis.digest} error={analysis.digest_error} onRetry={onRetry} retrying={retrying} />
+          <DigestView
+            sourceId={sourceId}
+            digest={analysis.digest}
+            error={analysis.digest_error}
+            onRetry={onRetry}
+            retrying={retrying}
+          />
         )}
         {active === "critique" && (
           <CritiqueView
+            sourceId={sourceId}
             critique={analysis.critique}
             error={analysis.critique_error}
             onRetry={onRetry}
@@ -65,7 +74,13 @@ export function AnalysisTabs({
           />
         )}
         {active === "claims" && (
-          <ClaimsView claims={analysis.claims} error={analysis.claims_error} onRetry={onRetry} retrying={retrying} />
+          <ClaimsView
+            sourceId={sourceId}
+            claims={analysis.claims}
+            error={analysis.claims_error}
+            onRetry={onRetry}
+            retrying={retrying}
+          />
         )}
       </div>
     </div>

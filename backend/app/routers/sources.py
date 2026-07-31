@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.chat.prompts import build_chat_prompt
-from app.concept_graph.pipeline import process_highlight, process_source_concepts
+from app.concept_graph.pipeline import process_highlight, process_source_concepts, promote_concept
 from app.core.config import get_data_root
 from app.graph import build_system_graph, checkpoint_db_path
 from app.graph_store.store import delete_concept_highlights_for_highlight, graph_db_path, init_db
@@ -39,16 +39,20 @@ from app.repositories.source_repository import (
     find_duplicate_highlight,
     get_source,
     list_sources,
+    mark_feedback_promoted,
     read_analysis,
     read_chat,
+    read_feedback,
     read_highlights,
     read_source_url,
     update_highlight_note,
+    upsert_feedback,
     write_analysis,
 )
 from app.schemas.agent import AgentErrorResponse
-from app.schemas.analysis import AnalysisResult
+from app.schemas.analysis import AnalysisResult, Concept
 from app.schemas.chat import ChatHistory, ChatRequest, ChatTurn
+from app.schemas.feedback import FeedbackEntry, FeedbackHistory, FeedbackRequest
 from app.schemas.graph import HighlightProcessResult
 from app.schemas.highlight import Highlight, HighlightCreateRequest, HighlightHistory, HighlightUpdateRequest
 from app.schemas.source import (
@@ -390,3 +394,82 @@ def patch_highlight_endpoint(source_id: str, highlight_id: str, payload: Highlig
         return HighlightProcessResult(highlight=updated, extraction_error=str(exc))
 
     return process_highlight(data_root, source_id, updated, llm_provider, embeddings_api_key)
+
+
+@router.get("/{source_id}/feedback", response_model=FeedbackHistory)
+def get_feedback_endpoint(source_id: str) -> FeedbackHistory:
+    data_root = get_data_root()
+    if get_source(data_root, source_id) is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return read_feedback(data_root, source_id)
+
+
+@router.put("/{source_id}/feedback", response_model=FeedbackEntry)
+def put_feedback_endpoint(source_id: str, payload: FeedbackRequest) -> FeedbackEntry:
+    data_root = get_data_root()
+    if get_source(data_root, source_id) is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return upsert_feedback(
+        data_root, source_id, kind=payload.kind, section=payload.section,
+        content=payload.content, term=payload.term, rating=payload.rating,
+    )
+
+
+@router.post("/{source_id}/feedback/{feedback_id}/promote", response_model=HighlightProcessResult)
+def promote_feedback_endpoint(source_id: str, feedback_id: str):
+    data_root = get_data_root()
+    record = get_source(data_root, source_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    entry = next((e for e in read_feedback(data_root, source_id).entries if e.id == feedback_id), None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Feedback entry not found")
+    if entry.rating != "up":
+        raise HTTPException(status_code=400, detail="Feedback entry must be thumbs-up before promoting")
+    if entry.promoted:
+        raise HTTPException(status_code=400, detail="Feedback entry already promoted")
+
+    # Same reuse-vs-reprocess precedent as post_highlight_endpoint: if this
+    # feedback's content exactly matches an already-saved highlight, that
+    # highlight has already been through the concept-graph pipeline (or its
+    # failure is already reflected in graph.db's provenance). Re-running
+    # process_highlight/promote_concept here would call link_concept_highlight
+    # again for the same (concept_id, source_id, highlight_id) — concept_highlights
+    # has no unique constraint, so that's a silent duplicate provenance row at
+    # best, and a genuine duplicate concept node at worst if the LLM dedup judge
+    # nondeterministically returns "new" on a second call with identical input.
+    existing_highlight = find_duplicate_highlight(data_root, source_id, entry.content, note=None)
+    if existing_highlight is not None:
+        mark_feedback_promoted(data_root, source_id, feedback_id)
+        return HighlightProcessResult(highlight=existing_highlight, duplicate=True)
+
+    highlight = Highlight(
+        id=f"h_{uuid.uuid4().hex[:10]}",
+        source_quote=entry.content,
+        note=None,
+        source_title=record.title,
+        source_url=read_source_url(data_root, source_id),
+        created_at=_now_iso(),
+    )
+    append_highlight(data_root, source_id, highlight)
+
+    # The highlight always persists (and feedback is marked promoted below)
+    # regardless of what happens next — matches post_highlight_endpoint's
+    # existing "the highlight itself always persists even if extraction
+    # fails" precedent. Promoting is a one-way user action; a downstream
+    # provider hiccup shouldn't leave the button re-offering "promote" forever.
+    try:
+        llm_provider, embeddings_api_key = _load_llm_and_embeddings(data_root)
+    except ConfigError as exc:
+        mark_feedback_promoted(data_root, source_id, feedback_id)
+        return HighlightProcessResult(highlight=highlight, extraction_error=str(exc))
+
+    if entry.kind == "concept":
+        concept = Concept(id="promoted", term=entry.term, definition=entry.content)
+        result = promote_concept(data_root, source_id, highlight, concept, llm_provider, embeddings_api_key)
+    else:
+        result = process_highlight(data_root, source_id, highlight, llm_provider, embeddings_api_key)
+
+    mark_feedback_promoted(data_root, source_id, feedback_id)
+    return result

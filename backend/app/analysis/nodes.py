@@ -60,9 +60,11 @@ def run_digest(state: AnalysisState) -> dict:
     try:
         data = _complete_with_retry(state, prompt)
         highlights = [
-            Highlight(id=f"h{i + 1}", **item) for i, item in enumerate(data.get("highlights", []))
+            Highlight(**{**item, "id": f"h{i + 1}"}) for i, item in enumerate(data.get("highlights", []))
         ]
-        concepts = [Concept(id=f"c{i + 1}", **item) for i, item in enumerate(data.get("concepts", []))]
+        concepts = [
+            Concept(**{**item, "id": f"c{i + 1}"}) for i, item in enumerate(data.get("concepts", []))
+        ]
         digest = Digest(
             summary=data.get("summary", ""),
             highlights=highlights,
@@ -96,7 +98,9 @@ def run_claims(state: AnalysisState) -> dict:
     prompt = build_claims_prompt(state["title"], state["content"][:MAX_CONTENT_CHARS])
     try:
         data = _complete_with_retry(state, prompt)
-        claims = [Claim(id=f"claim{i + 1}", **item) for i, item in enumerate(data.get("claims", []))]
+        claims = [
+            Claim(**{**item, "id": f"claim{i + 1}"}) for i, item in enumerate(data.get("claims", []))
+        ]
     except (NodeOutputError, ValidationError, TypeError) as exc:
         return {"claims": None, "claims_error": str(exc)}
     return {"claims": claims, "claims_error": None}

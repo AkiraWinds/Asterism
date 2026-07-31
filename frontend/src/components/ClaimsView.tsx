@@ -1,5 +1,7 @@
 import { Claim } from "@/lib/api";
 import { AnalysisSectionError } from "./AnalysisSectionError";
+import { FeedbackControls } from "./FeedbackControls";
+import { useFeedback } from "@/lib/useFeedback";
 
 const TYPE_LABELS: Record<Claim["type"], string> = {
   factual: "Factual",
@@ -8,16 +10,20 @@ const TYPE_LABELS: Record<Claim["type"], string> = {
 };
 
 export function ClaimsView({
+  sourceId,
   claims,
   error,
   onRetry,
   retrying,
 }: {
+  sourceId: string;
   claims: Claim[] | null;
   error: string | null;
   onRetry: () => void;
   retrying: boolean;
 }) {
+  const { find, upsertLocal } = useFeedback(sourceId);
+
   if (!claims) {
     return <AnalysisSectionError message={error ?? "Unknown error"} onRetry={onRetry} retrying={retrying} />;
   }
@@ -37,6 +43,15 @@ export function ClaimsView({
           <blockquote className="mt-2 border-l-2 border-neutral-300 pl-3 text-xs italic text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
             {claim.source_quote}
           </blockquote>
+          <div className="mt-2">
+            <FeedbackControls
+              sourceId={sourceId}
+              kind="claim"
+              content={claim.source_quote}
+              existingFeedback={find("claim", undefined, claim.source_quote)}
+              onFeedbackChange={upsertLocal}
+            />
+          </div>
         </li>
       ))}
     </ul>

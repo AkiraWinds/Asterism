@@ -28,6 +28,7 @@ from app.graph_store.store import (
     insert_concept,
     insert_edge,
     insert_review_queue_entry,
+    link_concept_highlight,
     link_concept_source,
     nearest_neighbors,
 )
@@ -240,3 +241,40 @@ def process_source_concepts(
         llm_provider=llm_provider, embeddings_api_key=embeddings_api_key,
         log_context=f"source_id={source_id} (Tier-1)",
     )
+
+
+def promote_concept(
+    data_root: Path,
+    source_id: str,
+    highlight: Highlight,
+    concept: Concept,
+    llm_provider: Provider,
+    embeddings_api_key: str,
+) -> HighlightProcessResult:
+    """Feeds a single user-endorsed digest Concept through the same
+    embed->dedup->apply pipeline process_highlight uses, skipping the
+    extraction LLM call — the Concept already has term/definition from
+    Phase 4, and re-deriving them via extraction risks producing a
+    different concept than the one the user actually endorsed.
+    self_relevant=True (unlike Tier-1's process_source_concepts, which
+    always passes False): the user actively endorsed this concept, which
+    is exactly what self_relevant means elsewhere in the pipeline. Links
+    via link_concept_highlight, not link_concept_source — a promoted
+    concept has a real backing highlight (materialized by the caller), so
+    it gets the same provenance path as a manually-highlighted concept."""
+    db_path = graph_db_path(data_root)
+    init_db(db_path)
+
+    items = [{"term": concept.term, "definition": concept.definition, "self_relevant": True}]
+
+    concepts, edges, queued, error = _dedupe_and_insert(
+        db_path, items, note=None,
+        link_fn=lambda concept_id: link_concept_highlight(db_path, concept_id, source_id, highlight.id),
+        llm_provider=llm_provider, embeddings_api_key=embeddings_api_key,
+        log_context=f"promoted concept source_id={source_id} highlight_id={highlight.id}",
+    )
+    if error is not None:
+        return HighlightProcessResult(
+            highlight=highlight, concepts=concepts, edges=edges, queued=queued, extraction_error=error
+        )
+    return HighlightProcessResult(highlight=highlight, concepts=concepts, edges=edges, queued=queued)
