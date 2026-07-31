@@ -24,7 +24,7 @@ def _stub_extraction(monkeypatch, term="AI-first triage", definition="AI process
     provider = MagicMock()
     provider.complete.return_value = (
         f'[{{"term": "{term}", "definition": "{definition}", '
-        '"self_relevant": false, "relationship": "none"}]'
+        '"self_relevant": false}]'
     )
     monkeypatch.setattr("app.routers.sources.build_provider", lambda config, data_root: provider)
     monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
@@ -132,9 +132,9 @@ def test_patch_highlight_updates_note_and_reruns_extraction(tmp_path: Path, monk
     provider = MagicMock()
     provider.complete.side_effect = [
         '[{"term": "AI-first triage, refined", "definition": "AI processes first.", '
-        '"self_relevant": false, "relationship": "none"}]',
+        '"self_relevant": false}]',
         f'[{{"existing_concept_id": "{original_concept_id}", "judgment": "new", '
-        '"confidence": "high", "summary": "distinct concept"}]',
+        '"confidence": "high", "relationship": "none", "summary": "distinct concept"}]',
     ]
     monkeypatch.setattr("app.routers.sources.build_provider", lambda config, data_root: provider)
     monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])

@@ -28,23 +28,20 @@ def build_extraction_prompt(source_quote: str, note: str | None) -> str:
         "Given a highlighted passage from a source, and an optional user note "
         "explaining why they highlighted it, extract 1-3 concepts. For each: a "
         "short name (2-5 words), a definition (1-2 sentences, grounded in the "
-        "passage), whether it is self-relevant (the note references the user's "
-        "own project/work rather than another source concept), and — if a note "
-        "is present and does NOT indicate self-relevance — what relationship it "
-        "signals to something else: contradicts, extends, related_to, or none.",
+        "passage), and whether it is self-relevant (the note references the "
+        "user's own project/work rather than another source concept).",
         f"## Highlighted passage\n\n{source_quote}",
     ]
     if note:
         parts.append(f"## User's note\n\n{note}")
     parts.append(
-        "Respond with JSON only: a list of objects with keys term, definition, "
-        "self_relevant (bool), relationship (one of contradicts/extends/related_to/none)."
+        "Respond with JSON only: a list of objects with keys term, definition, self_relevant (bool)."
     )
     return "\n\n".join(parts)
 
 
-_EXTRACTION_KEYS = {"term", "definition", "self_relevant", "relationship"}
-_DEDUP_KEYS = {"existing_concept_id", "judgment", "confidence", "summary"}
+_EXTRACTION_KEYS = {"term", "definition", "self_relevant"}
+_DEDUP_KEYS = {"existing_concept_id", "judgment", "confidence", "relationship", "summary"}
 
 
 def _validate_shape(parsed: object, required_keys: set[str], label: str) -> list[dict]:
@@ -84,7 +81,9 @@ def build_dedup_prompt(
         "neighbor (e.g. 'same idea as X but more specific'), that note's assertion "
         "should override an otherwise-ambiguous embedding similarity score and count "
         "as high confidence — do not downgrade confidence just because the definitions "
-        "alone look different.",
+        "alone look different. For every neighbor, also classify the relationship between "
+        "the candidate and that neighbor from their definitions (and the note, when "
+        "present): contradicts, extends, related_to, or none.",
         f"## Candidate concept\n\n{candidate_term}: {candidate_definition}",
     ]
     if candidate_note:
@@ -92,7 +91,8 @@ def build_dedup_prompt(
     parts.append(f"## Existing neighbors\n\n{neighbor_lines}")
     parts.append(
         "Respond with JSON only: a list of objects with keys existing_concept_id, "
-        "judgment (one of same/related_distinct/new), confidence (high/medium), summary."
+        "judgment (one of same/related_distinct/new), confidence (high/medium), "
+        "relationship (one of contradicts/extends/related_to/none), summary."
     )
     return "\n\n".join(parts)
 

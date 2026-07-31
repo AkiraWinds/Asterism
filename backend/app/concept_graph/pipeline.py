@@ -32,9 +32,10 @@ from app.schemas.highlight import Highlight
 
 logger = logging.getLogger(__name__)
 
-# The extraction step's "relationship" field uses "related_to"/"none" to describe
-# what a note signals; edge storage only distinguishes related/contradicts/extends,
-# so both of those collapse to "related" when an edge actually gets created.
+# The dedup judgment's "relationship" field uses "related_to"/"none" to describe
+# the classified relationship to the neighbor; edge storage only distinguishes
+# related/contradicts/extends, so both of those collapse to "related" when an
+# edge actually gets created.
 _RELATIONSHIP_TO_EDGE_TYPE = {
     "contradicts": "contradicts",
     "extends": "extends",
@@ -150,18 +151,21 @@ def process_highlight(
             concept_node = _create_concept(item, embedding)
             created_concepts.append(concept_node)
 
-            if best["confidence"] == "high":
+            edge_type = _RELATIONSHIP_TO_EDGE_TYPE.get(best["relationship"], "related")
+            if best["confidence"] == "high" and edge_type != "contradicts":
                 edge_id = f"e_{uuid.uuid4().hex[:10]}"
-                edge_type = _RELATIONSHIP_TO_EDGE_TYPE.get(item["relationship"], "related")
                 insert_edge(db_path, edge_id, concept_node.id, existing["id"], edge_type, best["summary"])
                 created_edges.append(Edge(id=edge_id, from_id=concept_node.id, to_id=existing["id"], type=edge_type, summary=best["summary"]))
             else:
                 entry_id = f"rq_{uuid.uuid4().hex[:10]}"
                 now = _now_iso()
-                insert_review_queue_entry(db_path, entry_id, concept_node.id, existing["id"], best["summary"], now)
+                insert_review_queue_entry(
+                    db_path, entry_id, concept_node.id, existing["id"], best["summary"], now,
+                    proposed_edge_type=edge_type,
+                )
                 queued.append(ReviewQueueEntry(
                     id=entry_id, candidate_concept_id=concept_node.id, existing_concept_id=existing["id"],
-                    llm_judgment=best["summary"], created_at=now,
+                    llm_judgment=best["summary"], proposed_edge_type=edge_type, created_at=now,
                 ))
     except (ValueError, ProviderError) as exc:
         # Dedup/embedding failures degrade the same way as an extraction failure or a
