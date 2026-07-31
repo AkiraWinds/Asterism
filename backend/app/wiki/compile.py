@@ -6,7 +6,6 @@ lightweight lint pass. graph.db stays the source of truth throughout — this
 module only ever reads it. See
 docs/superpowers/specs/2026-07-31-wiki-compile-layer-design.md."""
 
-import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,7 +16,7 @@ from app.wiki.hashing import provenance_hash
 from app.wiki.lint import find_orphan_concepts, find_unexplained_contradictions
 from app.wiki.prompts import build_wiki_page_prompt, parse_wiki_page_response
 from app.wiki.render import (
-    extract_body,
+    extract_synthesis_body,
     parse_wiki_page_frontmatter,
     render_index,
     render_log_entry,
@@ -33,7 +32,9 @@ logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    # Codebase convention (see test fixtures) uses a trailing "Z" rather
+    # than the "+00:00" offset isoformat() emits by default.
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _scan_existing_pages(wiki_dir: Path) -> dict[str, dict]:
@@ -52,7 +53,7 @@ def _scan_existing_pages(wiki_dir: Path) -> dict[str, dict]:
         # page": the concept will simply be regenerated under a fresh slug.
         try:
             frontmatter = parse_wiki_page_frontmatter(path.read_text())
-        except (ValueError, json.JSONDecodeError):
+        except ValueError:  # json.JSONDecodeError is a ValueError subclass
             logger.warning("Skipping unparseable wiki page frontmatter: %s", path)
             continue
         if frontmatter and "concept_id" in frontmatter:
@@ -74,7 +75,13 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
     qualifying = select_qualifying_concepts(concepts, provenance_by_concept)
 
     existing_pages = _scan_existing_pages(wiki_dir)
-    taken_slugs = {"index", "log"} | {p["slug"] for p in existing_pages.values()}
+    # Seed from every *.md file already on disk, not just the ones whose
+    # frontmatter parsed cleanly — a corrupt/hand-edited page is still a
+    # real file occupying its slug, and `_scan_existing_pages` skips adding
+    # those to `existing_pages`. Without this, a fresh `unique_slug()` call
+    # for the same concept (now treated as "no existing page") could pick
+    # the corrupt file's own slug and overwrite it on write.
+    taken_slugs = {"index", "log"} | {p.stem for p in wiki_dir.glob("*.md")}
 
     slug_by_concept_id: dict[str, str] = {}
     for concept in qualifying:
@@ -111,7 +118,7 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
         )
 
         if unchanged:
-            page_bodies[concept_id] = extract_body(page_path.read_text())
+            page_bodies[concept_id] = extract_synthesis_body(page_path.read_text())
             page_meta.append({
                 "term": concept["term"], "slug": slug, "definition": concept["definition"],
                 "source_highlight_count": len(provenance), "updated_at": existing["frontmatter"]["updated_at"],
@@ -127,6 +134,7 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
         except (ValueError, ProviderError) as exc:
             logger.exception("Wiki compile failed for concept_id=%s", concept_id)
             errors.append({"concept_id": concept_id, "message": str(exc)})
+            change_lines.append(f"- error: {concept['term']} — {exc}")
             continue
 
         updated_at = _now_iso()
@@ -153,8 +161,15 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
             pages_updated += 1
             change_lines.append(f"- updated: {concept['term']} ({old_count}→{len(provenance)} highlights)")
 
-    qualifying_concepts_only = [c for c in concepts if c["id"] in slug_by_concept_id]
-    orphans = find_orphan_concepts(qualifying_concepts_only, all_edges)
+    # Only concepts with an actually-written page belong in orphan
+    # detection: `slug_by_concept_id` is assigned before the LLM call, so it
+    # still includes concepts whose generation failed this run — flagging
+    # one of those as an orphan would link index.md to a .md file that was
+    # never written.
+    error_ids = {e["concept_id"] for e in errors}
+    orphans = find_orphan_concepts(
+        [c for c in qualifying if c["id"] not in error_ids], all_edges,
+    )
     contradictions = find_unexplained_contradictions(
         [e for e in all_edges if e["type"] == "contradicts"], page_bodies, concept_terms,
     )

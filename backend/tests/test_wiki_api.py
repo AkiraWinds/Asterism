@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.graph_store.store import graph_db_path, init_db, insert_concept, link_concept_highlight
+from app.graph_store.store import graph_db_path, init_db
 from app.main import app
 
 client = TestClient(app)

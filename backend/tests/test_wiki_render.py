@@ -101,6 +101,23 @@ def test_render_index_includes_attention_section_when_present():
     assert "Orphan: [X](x.md)" in index
 
 
+def test_render_index_truncates_long_definition_and_strips_newlines():
+    pages = [{
+        "term": "RAG", "slug": "rag",
+        "definition": "line one\nline two\n" + ("word " * 60),
+        "source_highlight_count": 1, "updated_at": "2026-07-31T10:00:00Z",
+    }]
+
+    index = render_index(pages, [])
+
+    # Definition became one list-item line (no raw newline broke the markdown).
+    line = next(line for line in index.splitlines() if line.startswith("- [RAG]"))
+    assert line.startswith("- [RAG](rag.md) — line one line two word word")
+    definition_part = line.split("— ", 1)[1].split(" · ")[0]
+    assert len(definition_part) <= 151
+    assert definition_part.endswith("…")
+
+
 def test_render_log_entry_formats_summary_line_and_changes():
     entry = render_log_entry(
         date="2026-07-31", pages_updated=4, pages_new=1, orphans_flagged=0, errors_count=0,
@@ -108,9 +125,18 @@ def test_render_log_entry_formats_summary_line_and_changes():
     )
     assert entry.startswith("## [2026-07-31] wiki-compile | 4 pages updated, 1 new, 0 orphans flagged, 0 errors\n")
     assert "- updated: RAG (3→5 highlights)" in entry
-    assert entry.endswith("\n")
+    assert entry.endswith("\n\n")
 
 
 def test_render_log_entry_handles_no_changes():
     entry = render_log_entry("2026-07-31", 0, 0, 0, 0, [])
     assert "0 pages updated, 0 new, 0 orphans flagged, 0 errors" in entry
+
+
+def test_render_log_entry_ends_with_blank_line_so_appended_entries_stay_separated():
+    first = render_log_entry("2026-07-31", 1, 0, 0, 0, ["- updated: RAG"])
+    second = render_log_entry("2026-08-01", 0, 1, 0, 0, ["- new: Vector Search"])
+
+    appended = first + second
+
+    assert "\n\n## [2026-08-01]" in appended

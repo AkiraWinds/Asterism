@@ -59,6 +59,21 @@ def extract_body(text: str) -> str:
     return parts[2].lstrip("\n") if len(parts) >= 3 else text
 
 
+def extract_synthesis_body(text: str) -> str:
+    """Like `extract_body`, but stops at the first `## `-prefixed heading
+    (the start of the Related concepts / Sources sections), returning only
+    the LLM-synthesized prose. Used when re-reading an unchanged page back
+    into `page_bodies` for the contradiction lint on a skip-path re-run:
+    `render_related_section` always name-drops the other concept's term as
+    link text, so feeding the full body (via `extract_body`) into the
+    substring-based contradiction heuristic would make it fire on every
+    re-run regardless of whether the synthesis prose itself ever mentioned
+    the contradiction."""
+    body = extract_body(text)
+    idx = body.find("\n## ")
+    return body if idx == -1 else body[:idx]
+
+
 def render_related_section(
     edges: list[dict], concept_terms: dict[str, str], concept_slugs: dict[str, str], self_id: str,
 ) -> str:
@@ -85,12 +100,21 @@ def render_sources_section(citations: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+_DEFINITION_TRUNCATE_LEN = 150
+
+
 def render_index(pages: list[dict], attention_items: list[str]) -> str:
     lines = ["# Wiki Index", ""]
     for page in pages:
         date = page["updated_at"][:10]
+        # Definitions are free-form user/AI text and may contain newlines
+        # (which would break a markdown list item) or run long; collapse
+        # whitespace and cap length so the index stays one line per entry.
+        definition = " ".join(page["definition"].split())
+        if len(definition) > _DEFINITION_TRUNCATE_LEN:
+            definition = definition[:_DEFINITION_TRUNCATE_LEN].rstrip() + "…"
         lines.append(
-            f"- [{page['term']}]({page['slug']}.md) — {page['definition']} · "
+            f"- [{page['term']}]({page['slug']}.md) — {definition} · "
             f"{page['source_highlight_count']} highlights · updated {date}"
         )
     if attention_items:
@@ -108,4 +132,8 @@ def render_log_entry(
         f"{orphans_flagged} orphans flagged, {errors_count} errors"
     )
     lines = [header, *change_lines]
-    return "\n".join(lines) + "\n"
+    # Trailing blank line (not just a single "\n") so consecutive entries
+    # appended to log.md over multiple runs stay visually separated instead
+    # of the next run's header landing immediately after this entry's last
+    # change line.
+    return "\n".join(lines) + "\n\n"
