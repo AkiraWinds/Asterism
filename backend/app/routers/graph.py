@@ -63,7 +63,7 @@ def list_review_queue_endpoint() -> list[ReviewQueueEntry]:
         ReviewQueueEntry(
             id=e["id"], candidate_concept_id=e["candidate_concept_id"],
             existing_concept_id=e["existing_concept_id"], llm_judgment=e["llm_judgment"],
-            created_at=e["created_at"],
+            proposed_edge_type=e["proposed_edge_type"], created_at=e["created_at"],
         )
         for e in list_review_queue(db_path)
     ]
@@ -82,7 +82,10 @@ def resolve_review_queue_endpoint(entry_id: str, payload: ReviewQueueResolveRequ
         delete_concept(db_path, entry["candidate_concept_id"])
     else:
         edge_id = f"e_{uuid.uuid4().hex[:10]}"
-        insert_edge(db_path, edge_id, entry["candidate_concept_id"], entry["existing_concept_id"], "related", entry["llm_judgment"])
+        insert_edge(
+            db_path, edge_id, entry["candidate_concept_id"], entry["existing_concept_id"],
+            entry["proposed_edge_type"], entry["llm_judgment"],
+        )
 
     delete_review_queue_entry(db_path, entry_id)
     return {"status": "resolved"}

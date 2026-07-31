@@ -134,6 +134,29 @@ def test_resolve_keep_separate_creates_edge_and_clears_queue(tmp_path: Path, mon
     assert list_review_queue(db_path) == []
 
 
+def test_resolve_keep_separate_uses_stored_proposed_edge_type(tmp_path: Path, monkeypatch):
+    # resolve_review_queue_endpoint's "keep_separate" branch used to hardcode
+    # insert_edge(..., "related", ...) regardless of what was actually
+    # classified — this must use the entry's own proposed_edge_type instead,
+    # otherwise approving a queued "contradicts" entry would silently create
+    # a "related" edge and defeat the whole point of force-queuing it.
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    insert_concept(db_path, "c_1", "A", "def", [0.1], False, "2026-07-30T00:00:00Z")
+    insert_concept(db_path, "c_2", "B", "def", [0.2], False, "2026-07-30T00:00:01Z")
+    insert_review_queue_entry(
+        db_path, "rq_1", "c_2", "c_1", "these conflict", "2026-07-30T00:00:02Z",
+        proposed_edge_type="contradicts",
+    )
+
+    response = client.post("/graph/review-queue/rq_1/resolve", json={"action": "keep_separate"})
+
+    assert response.status_code == 200
+    graph = client.get("/graph").json()
+    assert graph["edges"][0]["type"] == "contradicts"
+
+
 def test_resolve_returns_404_for_unknown_entry(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
     db_path = graph_db_path(tmp_path)

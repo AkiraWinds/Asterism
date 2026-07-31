@@ -37,6 +37,7 @@ class ReviewQueueEntry(BaseModel):
     candidate_concept_id: str
     existing_concept_id: str
     llm_judgment: str
+    proposed_edge_type: Literal["related", "contradicts", "extends"] = "related"
     created_at: str
 
 

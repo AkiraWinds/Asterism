@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS review_queue (
   candidate_concept_id TEXT NOT NULL,
   existing_concept_id TEXT NOT NULL,
   llm_judgment TEXT NOT NULL,
+  proposed_edge_type TEXT NOT NULL DEFAULT 'related',
   created_at TEXT NOT NULL
 );
 """
@@ -72,6 +73,15 @@ def init_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with _connect(db_path) as conn:
         conn.executescript(SCHEMA)
+        # Migration guard: CREATE TABLE IF NOT EXISTS above is a no-op against a
+        # review_queue table that already exists on disk from Phase 6b — it will
+        # not add this column. See https://www.sqlite.org/lang_altertable.html —
+        # SQLite has no ADD COLUMN IF NOT EXISTS, so check PRAGMA table_info first.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(review_queue)")}
+        if "proposed_edge_type" not in cols:
+            conn.execute(
+                "ALTER TABLE review_queue ADD COLUMN proposed_edge_type TEXT NOT NULL DEFAULT 'related'"
+            )
         conn.commit()
 
 
@@ -182,13 +192,13 @@ def list_edges(db_path: Path) -> list[dict]:
 
 def insert_review_queue_entry(
     db_path: Path, entry_id: str, candidate_concept_id: str, existing_concept_id: str,
-    llm_judgment: str, created_at: str,
+    llm_judgment: str, created_at: str, proposed_edge_type: str = "related",
 ) -> None:
     with _connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO review_queue (id, candidate_concept_id, existing_concept_id, llm_judgment, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (entry_id, candidate_concept_id, existing_concept_id, llm_judgment, created_at),
+            "INSERT INTO review_queue (id, candidate_concept_id, existing_concept_id, llm_judgment, "
+            "proposed_edge_type, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (entry_id, candidate_concept_id, existing_concept_id, llm_judgment, proposed_edge_type, created_at),
         )
         conn.commit()
 
