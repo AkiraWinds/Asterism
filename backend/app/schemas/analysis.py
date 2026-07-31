@@ -76,4 +76,5 @@ class AnalysisResult(BaseModel):
     claims: list[Claim] | None = None
     claims_error: str | None = None
     connections: list[Connection] = []
+    concept_graph_error: str | None = None
     analyzed_at: str
