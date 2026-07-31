@@ -430,19 +430,29 @@ def promote_feedback_endpoint(source_id: str, feedback_id: str):
     if entry.promoted:
         raise HTTPException(status_code=400, detail="Feedback entry already promoted")
 
+    # Same reuse-vs-reprocess precedent as post_highlight_endpoint: if this
+    # feedback's content exactly matches an already-saved highlight, that
+    # highlight has already been through the concept-graph pipeline (or its
+    # failure is already reflected in graph.db's provenance). Re-running
+    # process_highlight/promote_concept here would call link_concept_highlight
+    # again for the same (concept_id, source_id, highlight_id) — concept_highlights
+    # has no unique constraint, so that's a silent duplicate provenance row at
+    # best, and a genuine duplicate concept node at worst if the LLM dedup judge
+    # nondeterministically returns "new" on a second call with identical input.
     existing_highlight = find_duplicate_highlight(data_root, source_id, entry.content, note=None)
     if existing_highlight is not None:
-        highlight = existing_highlight
-    else:
-        highlight = Highlight(
-            id=f"h_{uuid.uuid4().hex[:10]}",
-            source_quote=entry.content,
-            note=None,
-            source_title=record.title,
-            source_url=read_source_url(data_root, source_id),
-            created_at=_now_iso(),
-        )
-        append_highlight(data_root, source_id, highlight)
+        mark_feedback_promoted(data_root, source_id, feedback_id)
+        return HighlightProcessResult(highlight=existing_highlight, duplicate=True)
+
+    highlight = Highlight(
+        id=f"h_{uuid.uuid4().hex[:10]}",
+        source_quote=entry.content,
+        note=None,
+        source_title=record.title,
+        source_url=read_source_url(data_root, source_id),
+        created_at=_now_iso(),
+    )
+    append_highlight(data_root, source_id, highlight)
 
     # The highlight always persists (and feedback is marked promoted below)
     # regardless of what happens next — matches post_highlight_endpoint's

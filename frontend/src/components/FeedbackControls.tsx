@@ -28,14 +28,21 @@ export function FeedbackControls({
 }) {
   const [isRating, setIsRating] = useState(false);
   const [isPromoting, setIsPromoting] = useState(false);
-  const [promoteError, setPromoteError] = useState<string | null>(null);
+  // Shared between rating and promoting: both mutations can fail (network,
+  // validation, or — for promote — a graph pipeline error reported via HTTP
+  // 200 + extraction_error), and both should surface visibly rather than
+  // failing silently.
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   async function handleRate(rating: "up" | "down") {
     if (isRating) return;
     setIsRating(true);
+    setFeedbackError(null);
     try {
       const updated = await putFeedback(sourceId, kind, content, rating, { section, term });
       onFeedbackChange(updated);
+    } catch (err) {
+      setFeedbackError(err instanceof Error ? err.message : "Failed to rate");
     } finally {
       setIsRating(false);
     }
@@ -44,12 +51,21 @@ export function FeedbackControls({
   async function handlePromote() {
     if (isPromoting || !existingFeedback) return;
     setIsPromoting(true);
-    setPromoteError(null);
+    setFeedbackError(null);
     try {
-      await promoteFeedback(sourceId, existingFeedback.id);
+      const result = await promoteFeedback(sourceId, existingFeedback.id);
+      // The backend returns HTTP 200 with extraction_error set (not a 4xx/5xx)
+      // when the highlight was saved and feedback marked promoted, but the
+      // graph pipeline itself failed (ConfigError/ProviderError) — so nothing
+      // was actually added to the graph. promoted: true still correctly
+      // reflects the backend's persisted state; the error just needs to be
+      // surfaced alongside it rather than silently dropped.
       onFeedbackChange({ ...existingFeedback, promoted: true, promoted_at: new Date().toISOString() });
+      if (result.extraction_error) {
+        setFeedbackError(result.extraction_error);
+      }
     } catch (err) {
-      setPromoteError(err instanceof Error ? err.message : "Failed to promote");
+      setFeedbackError(err instanceof Error ? err.message : "Failed to promote");
     } finally {
       setIsPromoting(false);
     }
@@ -93,7 +109,7 @@ export function FeedbackControls({
           {existingFeedback.promoted ? "Promoted" : isPromoting ? "Promoting..." : "Promote to graph"}
         </button>
       )}
-      {promoteError && <span className="text-red-600 dark:text-red-400">{promoteError}</span>}
+      {feedbackError && <span className="text-red-600 dark:text-red-400">{feedbackError}</span>}
     </span>
   );
 }
