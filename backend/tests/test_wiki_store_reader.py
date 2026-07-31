@@ -35,15 +35,6 @@ def test_get_concept_provenance_unions_concept_sources_when_present(tmp_path: Pa
     assert {"source_id": "s_a", "highlight_id": "h_1"} in provenance
 
 
-def test_get_concept_provenance_tolerates_missing_concept_sources_table(tmp_path: Path):
-    db_path = _new_db(tmp_path)
-    link_concept_highlight(db_path, "c_1", "s_a", "h_1")
-
-    provenance = get_concept_provenance(db_path, "c_1")
-
-    assert provenance == [{"source_id": "s_a", "highlight_id": "h_1"}]
-
-
 def test_get_edges_for_concept_filters_by_endpoint(tmp_path: Path):
     db_path = _new_db(tmp_path)
     insert_edge(db_path, "e_1", "c_1", "c_2", "related", "summary a")

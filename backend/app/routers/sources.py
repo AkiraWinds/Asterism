@@ -213,15 +213,22 @@ def analyze_source_endpoint(source_id: str):
     # a missing/invalid embeddings key surfaces via concept_graph_error rather
     # than blocking the (already-computed) digest/critique/claims results.
     if result.digest and result.digest.concepts:
+        # Broad except is intentional here: _dedupe_and_insert only catches
+        # (ValueError, ProviderError) internally, so anything else (e.g. a
+        # locked graph.db raising sqlite3.OperationalError, or an unexpected
+        # embed_text failure) must still be caught here rather than
+        # propagate as an unhandled 500 — otherwise write_analysis below
+        # never runs, and the already-computed digest/critique/claims work
+        # gets stranded looking like "still Processing" (status is inferred
+        # from file existence, not stored).
         try:
             llm_provider, embeddings_api_key = _load_llm_and_embeddings(data_root)
-        except ConfigError as exc:
-            result.concept_graph_error = str(exc)
-        else:
             _, _, _, concept_graph_error = process_source_concepts(
                 data_root, source_id, result.digest.concepts, llm_provider, embeddings_api_key
             )
             result.concept_graph_error = concept_graph_error
+        except Exception as exc:
+            result.concept_graph_error = str(exc)
 
     write_analysis(data_root, source_id, result)
     return result

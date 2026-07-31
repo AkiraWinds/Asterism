@@ -11,18 +11,12 @@ from app.graph_store.store import list_edges
 from app.repositories.source_repository import get_source, read_highlights
 
 
-def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
-    row = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
-    ).fetchone()
-    return row is not None
-
-
 def get_concept_provenance(db_path: Path, concept_id: str) -> list[dict]:
     """Union of concept_highlights (highlight-derived, Phase 6b) and
-    concept_sources (digest-derived, Phase 6b-2 — read only if the table
-    exists, since 6b-2 may not be built on this graph.db yet) provenance rows
-    for one concept. Each row: {"source_id": str, "highlight_id": str | None}.
+    concept_sources (digest-derived, Phase 6b-2) provenance rows for one
+    concept. init_db() always creates both tables unconditionally, so no
+    existence check is needed here. Each row:
+    {"source_id": str, "highlight_id": str | None}.
     """
     conn = sqlite3.connect(db_path)
     try:
@@ -32,12 +26,11 @@ def get_concept_provenance(db_path: Path, concept_id: str) -> list[dict]:
             (concept_id,),
         ).fetchall()
         result = [{"source_id": r["source_id"], "highlight_id": r["highlight_id"]} for r in rows]
-        if _table_exists(conn, "concept_sources"):
-            source_rows = conn.execute(
-                "SELECT source_id FROM concept_sources WHERE concept_id = ?",
-                (concept_id,),
-            ).fetchall()
-            result.extend({"source_id": r["source_id"], "highlight_id": None} for r in source_rows)
+        source_rows = conn.execute(
+            "SELECT source_id FROM concept_sources WHERE concept_id = ?",
+            (concept_id,),
+        ).fetchall()
+        result.extend({"source_id": r["source_id"], "highlight_id": None} for r in source_rows)
         return result
     finally:
         conn.close()

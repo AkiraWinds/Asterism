@@ -5,6 +5,7 @@ from pathlib import Path
 from app.graph_store.store import (
     delete_concept,
     delete_concept_highlights_for_highlight,
+    delete_concept_sources_for_source,
     delete_review_queue_entry,
     get_concept,
     get_review_queue_entry,
@@ -173,3 +174,17 @@ def test_link_concept_source_creates_provenance_row(tmp_path: Path):
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT concept_id, source_id FROM concept_sources").fetchall()
     assert [(r["concept_id"], r["source_id"]) for r in rows] == [("c_1", "source_a")]
+
+
+def test_delete_concept_sources_for_source_clears_only_that_sources_links(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
+    link_concept_source(db_path, "c_1", "source_a")
+    link_concept_source(db_path, "c_1", "source_b")
+
+    delete_concept_sources_for_source(db_path, "source_a")
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        remaining = conn.execute("SELECT source_id FROM concept_sources").fetchall()
+    assert [r["source_id"] for r in remaining] == ["source_b"]

@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -464,3 +465,50 @@ def test_process_source_concepts_returns_error_on_provider_failure(tmp_path: Pat
 
     assert error is not None
     assert "401" in error
+
+
+def test_process_source_concepts_retry_does_not_duplicate_provenance_row(tmp_path: Path):
+    # analyze is retryable (see analyze_source_endpoint), so process_source_concepts
+    # can run more than once for the same source_id. The first run creates the
+    # concept fresh (no neighbors); the second run then sees that concept as a
+    # neighbor and (via a mocked "same" dedup judgment) links to it again. Without
+    # clearing prior concept_sources rows for this source_id first, the second run
+    # would insert a second (concept_id, source_id) row.
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([])  # first run: no neighbors, no dedup call
+
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.2]):
+        concepts, _, _, error = process_source_concepts(
+            tmp_path, "source_a",
+            [Concept(id="dc_1", term="RAG", definition="Retrieval-augmented generation.")],
+            provider, "sk-embed",
+        )
+    assert error is None
+    assert len(concepts) == 1
+    concept_id = concepts[0].id
+
+    # Second run: the concept from the first run is now a neighbor, so dedup
+    # gets called; mock it to judge "same" (the realistic no-op-content case).
+    provider.complete.return_value = json.dumps([
+        {"existing_concept_id": concept_id, "judgment": "same", "confidence": "high",
+         "relationship": "none", "summary": "identical"}
+    ])
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.2]):
+        concepts2, _, _, error2 = process_source_concepts(
+            tmp_path, "source_a",
+            [Concept(id="dc_1", term="RAG", definition="Retrieval-augmented generation.")],
+            provider, "sk-embed",
+        )
+    assert error2 is None
+    assert concepts2 == []
+
+    assert len(list_concepts(db_path)) == 1
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT concept_id, source_id FROM concept_sources WHERE source_id = 'source_a'"
+        ).fetchall()
+    assert [(r["concept_id"], r["source_id"]) for r in rows] == [(concept_id, "source_a")]

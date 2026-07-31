@@ -165,6 +165,17 @@ def delete_concept_highlights_for_highlight(db_path: Path, highlight_id: str) ->
         conn.commit()
 
 
+def delete_concept_sources_for_source(db_path: Path, source_id: str) -> None:
+    """Clear one source's Tier-1 provenance links before re-running
+    process_source_concepts on a re-analyze, e.g. so a retry doesn't
+    re-insert duplicate (concept_id, source_id) rows. Does not delete the
+    concept rows themselves — a concept may still be linked from other
+    sources or highlights."""
+    with _connect(db_path) as conn:
+        conn.execute("DELETE FROM concept_sources WHERE source_id = ?", (source_id,))
+        conn.commit()
+
+
 def repoint_concept_highlights(db_path: Path, old_concept_id: str, new_concept_id: str) -> None:
     with _connect(db_path) as conn:
         conn.execute(

@@ -21,6 +21,7 @@ from app.concept_graph.prompts import (
     parse_extraction_response,
 )
 from app.graph_store.store import (
+    delete_concept_sources_for_source,
     get_concept,
     graph_db_path,
     init_db,
@@ -223,6 +224,13 @@ def process_source_concepts(
     process_highlight."""
     db_path = graph_db_path(data_root)
     init_db(db_path)
+
+    # Clear this source's prior Tier-1 provenance before re-running: analyze
+    # is retryable, and without this a retry would re-insert
+    # (concept_id, source_id) rows even when dedup correctly judges "same"
+    # and no new concept is created — duplicating rows that
+    # get_concept_provenance unions straight into wiki citations.
+    delete_concept_sources_for_source(db_path, source_id)
 
     items = [{"term": c.term, "definition": c.definition, "self_relevant": False} for c in concepts]
 
