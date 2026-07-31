@@ -290,19 +290,21 @@ def upsert_feedback(
     existing one's rating if it already exists. Returns the entry either way, so
     the caller always has its id."""
     history = read_feedback(data_root, source_id)
-    existing = find_feedback_entry(data_root, source_id, kind, section, content)
+    normalized_content = content.strip()
     now = datetime.now(timezone.utc).isoformat()
 
-    if existing is not None:
-        for entry in history.entries:
-            if entry.id == existing.id:
-                entry.rating = rating
-                entry.updated_at = now
-                if term is not None:
-                    entry.term = term
-                _write_feedback(data_root, source_id, history)
-                return entry
+    # Look for existing entry with matching (kind, section, content)
+    for entry in history.entries:
+        if entry.kind == kind and entry.section == section and entry.content.strip() == normalized_content:
+            # Found existing entry, update it
+            entry.rating = rating
+            entry.updated_at = now
+            if term is not None:
+                entry.term = term
+            _write_feedback(data_root, source_id, history)
+            return entry
 
+    # No existing entry found, create a new one
     entry = FeedbackEntry(
         id=f"fb_{uuid.uuid4().hex[:10]}", kind=kind, section=section, content=content,
         term=term, rating=rating, created_at=now, updated_at=now,
