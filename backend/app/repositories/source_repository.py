@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app.schemas.analysis import AnalysisResult
 from app.schemas.chat import ChatHistory, ChatTurn
+from app.schemas.feedback import FeedbackEntry, FeedbackHistory
 from app.schemas.highlight import Highlight, HighlightHistory
 
 
@@ -251,4 +252,74 @@ def update_highlight_note(data_root: Path, source_id: str, highlight_id: str, no
             highlights_path = data_root / "library" / source_id / "highlights.json"
             highlights_path.write_text(history.model_dump_json(indent=2))
             return updated
+    return None
+
+
+def read_feedback(data_root: Path, source_id: str) -> FeedbackHistory:
+    """Read feedback.json if it exists, else return an empty FeedbackHistory."""
+    feedback_path = data_root / "library" / source_id / "feedback.json"
+    if not feedback_path.exists():
+        return FeedbackHistory()
+    return FeedbackHistory.model_validate_json(feedback_path.read_text())
+
+
+def _write_feedback(data_root: Path, source_id: str, history: FeedbackHistory) -> None:
+    feedback_path = data_root / "library" / source_id / "feedback.json"
+    feedback_path.write_text(history.model_dump_json(indent=2))
+
+
+def find_feedback_entry(
+    data_root: Path, source_id: str, kind: str, section: str | None, content: str
+) -> FeedbackEntry | None:
+    """Return the feedback entry matching (kind, section, content) exactly after
+    whitespace-normalization, or None. Mirrors find_duplicate_highlight's matching
+    rule — feedback is matched by content, not by analysis.json's reanalyze-volatile
+    ids (see the design doc's Key Design Decision)."""
+    normalized_content = content.strip()
+    for entry in read_feedback(data_root, source_id).entries:
+        if entry.kind == kind and entry.section == section and entry.content.strip() == normalized_content:
+            return entry
+    return None
+
+
+def upsert_feedback(
+    data_root: Path, source_id: str, kind: str, section: str | None, content: str,
+    term: str | None, rating: str,
+) -> FeedbackEntry:
+    """Create a new feedback entry for (kind, section, content), or update the
+    existing one's rating if it already exists. Returns the entry either way, so
+    the caller always has its id."""
+    history = read_feedback(data_root, source_id)
+    existing = find_feedback_entry(data_root, source_id, kind, section, content)
+    now = datetime.now(timezone.utc).isoformat()
+
+    if existing is not None:
+        for entry in history.entries:
+            if entry.id == existing.id:
+                entry.rating = rating
+                entry.updated_at = now
+                if term is not None:
+                    entry.term = term
+                _write_feedback(data_root, source_id, history)
+                return entry
+
+    entry = FeedbackEntry(
+        id=f"fb_{uuid.uuid4().hex[:10]}", kind=kind, section=section, content=content,
+        term=term, rating=rating, created_at=now, updated_at=now,
+    )
+    history.entries.append(entry)
+    _write_feedback(data_root, source_id, history)
+    return entry
+
+
+def mark_feedback_promoted(data_root: Path, source_id: str, feedback_id: str) -> FeedbackEntry | None:
+    """Set promoted=True/promoted_at on the given feedback entry. Returns the
+    updated entry, or None if feedback_id doesn't exist."""
+    history = read_feedback(data_root, source_id)
+    for entry in history.entries:
+        if entry.id == feedback_id:
+            entry.promoted = True
+            entry.promoted_at = datetime.now(timezone.utc).isoformat()
+            _write_feedback(data_root, source_id, history)
+            return entry
     return None

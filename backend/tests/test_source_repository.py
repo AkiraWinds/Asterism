@@ -18,6 +18,10 @@ from app.repositories.source_repository import (
     read_highlights,
     read_source_url,
     update_highlight_note,
+    read_feedback,
+    find_feedback_entry,
+    upsert_feedback,
+    mark_feedback_promoted,
 )
 from app.schemas.analysis import AnalysisResult, Claim, Digest
 from app.schemas.chat import ChatHistory, ChatTurn
@@ -271,3 +275,87 @@ def test_update_highlight_note_changes_note_and_returns_updated_highlight(tmp_pa
 def test_update_highlight_note_returns_none_for_unknown_highlight(tmp_path: Path):
     record = create_source(tmp_path, title="T", content="C")
     assert update_highlight_note(tmp_path, record.id, "does-not-exist", "note") is None
+
+
+def test_read_feedback_returns_empty_history_when_no_file(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="C")
+    history = read_feedback(tmp_path, record.id)
+    assert history.entries == []
+
+
+def test_upsert_feedback_creates_new_entry(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="C")
+
+    entry = upsert_feedback(
+        tmp_path, record.id, kind="concept", section=None,
+        content="AI processes information faster than humans.", term="AI-first triage", rating="up",
+    )
+
+    assert entry.kind == "concept"
+    assert entry.rating == "up"
+    assert entry.promoted is False
+    history = read_feedback(tmp_path, record.id)
+    assert len(history.entries) == 1
+    assert history.entries[0].id == entry.id
+
+
+def test_upsert_feedback_updates_existing_entry_on_same_content(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="C")
+    first = upsert_feedback(
+        tmp_path, record.id, kind="claim", section=None, content="The sky is blue.", term=None, rating="up",
+    )
+
+    second = upsert_feedback(
+        tmp_path, record.id, kind="claim", section=None, content="The sky is blue.", term=None, rating="down",
+    )
+
+    assert second.id == first.id
+    history = read_feedback(tmp_path, record.id)
+    assert len(history.entries) == 1
+    assert history.entries[0].rating == "down"
+
+
+def test_upsert_feedback_distinguishes_by_section(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="C")
+    a = upsert_feedback(
+        tmp_path, record.id, kind="critique", section="hidden_assumptions",
+        content="Assumes the reader agrees.", term=None, rating="up",
+    )
+    b = upsert_feedback(
+        tmp_path, record.id, kind="critique", section="bias_indicators",
+        content="Assumes the reader agrees.", term=None, rating="down",
+    )
+
+    assert a.id != b.id
+    assert len(read_feedback(tmp_path, record.id).entries) == 2
+
+
+def test_find_feedback_entry_matches_whitespace_normalized(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="C")
+    upsert_feedback(tmp_path, record.id, kind="claim", section=None, content="  spaced text  ", term=None, rating="up")
+
+    found = find_feedback_entry(tmp_path, record.id, kind="claim", section=None, content="spaced text")
+
+    assert found is not None
+    assert found.rating == "up"
+
+
+def test_find_feedback_entry_returns_none_when_no_match(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="C")
+    assert find_feedback_entry(tmp_path, record.id, kind="claim", section=None, content="nothing saved") is None
+
+
+def test_mark_feedback_promoted_sets_flag_and_timestamp(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="C")
+    entry = upsert_feedback(tmp_path, record.id, kind="concept", section=None, content="X", term="X", rating="up")
+
+    updated = mark_feedback_promoted(tmp_path, record.id, entry.id)
+
+    assert updated.promoted is True
+    assert updated.promoted_at is not None
+    assert read_feedback(tmp_path, record.id).entries[0].promoted is True
+
+
+def test_mark_feedback_promoted_returns_none_for_unknown_id(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="C")
+    assert mark_feedback_promoted(tmp_path, record.id, "does-not-exist") is None
