@@ -97,7 +97,7 @@ Open questions not yet resolved (deferred until this phase is actually picked up
 
 ## Phase 6d — Wiki Compile Layer
 
-Not yet built. Spec: `docs/superpowers/specs/2026-07-31-wiki-compile-layer-design.md`. Renders the Phase 6b/6b-2
+Built — see `docs/superpowers/plans/2026-07-31-wiki-compile-layer.md` for the implementation. Spec: `docs/superpowers/specs/2026-07-31-wiki-compile-layer-design.md`. Renders the Phase 6b/6b-2
 concept graph (`graph.db`) into browsable markdown: one page per qualifying concept (`wiki/{slug}.md`, synthesized
 prose grounded in its linked highlights/edges), a regenerated `wiki/index.md` catalog, and an append-only
 `wiki/log.md`, plus a lightweight lint pass (orphan concepts, unexplained contradictions) folded into the same
