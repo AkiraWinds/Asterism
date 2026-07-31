@@ -83,6 +83,7 @@ export default function SourcePage() {
           <div ref={contentRef}>
             {source.analysis ? (
               <AnalysisTabs
+                sourceId={source.id}
                 content={source.content}
                 analysis={source.analysis}
                 onRetry={handleAnalyze}

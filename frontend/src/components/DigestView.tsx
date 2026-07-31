@@ -1,17 +1,23 @@
 import { Digest } from "@/lib/api";
 import { AnalysisSectionError } from "./AnalysisSectionError";
+import { FeedbackControls } from "./FeedbackControls";
+import { useFeedback } from "@/lib/useFeedback";
 
 export function DigestView({
+  sourceId,
   digest,
   error,
   onRetry,
   retrying,
 }: {
+  sourceId: string;
   digest: Digest | null;
   error: string | null;
   onRetry: () => void;
   retrying: boolean;
 }) {
+  const { find, upsertLocal } = useFeedback(sourceId);
+
   if (!digest) {
     return <AnalysisSectionError message={error ?? "Unknown error"} onRetry={onRetry} retrying={retrying} />;
   }
@@ -45,8 +51,18 @@ export function DigestView({
           </h3>
           <ul className="mt-2 flex flex-col gap-2">
             {digest.concepts.map((c) => (
-              <li key={c.id} className="text-sm text-neutral-800 dark:text-neutral-200">
-                <span className="font-medium">{c.term}</span> — {c.definition}
+              <li key={c.id} className="flex flex-col gap-1 text-sm text-neutral-800 dark:text-neutral-200">
+                <div>
+                  <span className="font-medium">{c.term}</span> — {c.definition}
+                </div>
+                <FeedbackControls
+                  sourceId={sourceId}
+                  kind="concept"
+                  content={c.definition}
+                  term={c.term}
+                  existingFeedback={find("concept", undefined, c.definition)}
+                  onFeedbackChange={upsertLocal}
+                />
               </li>
             ))}
           </ul>
