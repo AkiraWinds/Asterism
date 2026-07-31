@@ -6,6 +6,7 @@ lightweight lint pass. graph.db stays the source of truth throughout — this
 module only ever reads it. See
 docs/superpowers/specs/2026-07-31-wiki-compile-layer-design.md."""
 
+import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,7 +46,15 @@ def _scan_existing_pages(wiki_dir: Path) -> dict[str, dict]:
     for path in wiki_dir.glob("*.md"):
         if path.stem in ("index", "log"):
             continue
-        frontmatter = parse_wiki_page_frontmatter(path.read_text())
+        # Wiki pages are user-editable output — a hand-edited/corrupt
+        # frontmatter line (e.g. an unquoted `term:` value) must not abort
+        # the whole compile run. Treat an unparseable page as "no existing
+        # page": the concept will simply be regenerated under a fresh slug.
+        try:
+            frontmatter = parse_wiki_page_frontmatter(path.read_text())
+        except (ValueError, json.JSONDecodeError):
+            logger.warning("Skipping unparseable wiki page frontmatter: %s", path)
+            continue
         if frontmatter and "concept_id" in frontmatter:
             pages[frontmatter["concept_id"]] = {"slug": path.stem, "frontmatter": frontmatter}
     return pages
@@ -92,7 +101,14 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
 
         existing = existing_pages.get(concept_id)
         is_new = existing is None
-        unchanged = existing is not None and existing["frontmatter"].get("source_provenance_hash") == current_hash
+        # A page whose `updated_at` line was hand-deleted can still match on
+        # source_provenance_hash; treat that as "not unchanged" so it falls
+        # through to regeneration rather than raising KeyError.
+        unchanged = (
+            existing is not None
+            and existing["frontmatter"].get("source_provenance_hash") == current_hash
+            and "updated_at" in existing["frontmatter"]
+        )
 
         if unchanged:
             page_bodies[concept_id] = extract_body(page_path.read_text())

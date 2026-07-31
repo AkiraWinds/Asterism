@@ -78,6 +78,55 @@ def test_run_compile_keeps_stable_slug_across_runs(tmp_path: Path):
     assert not (tmp_path / "wiki" / "rag-c1.md").exists()
 
 
+def test_run_compile_treats_corrupt_existing_page_as_new_without_aborting(tmp_path: Path):
+    # Wiki pages are user-editable output. A hand-edit that leaves invalid
+    # JSON on a frontmatter line (unquoted `term:` value here) must not
+    # crash the whole compile run -- the concept should just regenerate.
+    _seed_qualifying_concept(tmp_path)
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+    (wiki_dir / "rag.md").write_text(
+        "---\n"
+        "concept_id: \"c_1\"\n"
+        "term: RAG unquoted and broken\n"  # invalid JSON value -> json.JSONDecodeError
+        "updated_at: \"2026-07-30T00:00:00+00:00\"\n"
+        "source_highlight_count: 3\n"
+        'source_provenance_hash: "deadbeef"\n'
+        'source_ids: ["s_0"]\n'
+        "---\n\n"
+        "Old body.\n"
+    )
+
+    result = run_compile(tmp_path, StubProvider())
+
+    assert result["errors"] == []
+    assert result["pages_new"] == 1
+    page_text = (tmp_path / "wiki" / "rag.md").read_text()
+    assert "Stub synthesis text." in page_text
+
+
+def test_run_compile_treats_missing_updated_at_as_not_unchanged(tmp_path: Path):
+    # A page with otherwise-valid, parseable frontmatter but a deleted
+    # `updated_at` line must fall through to regeneration instead of
+    # raising KeyError from the `unchanged` branch.
+    _seed_qualifying_concept(tmp_path)
+    provider = StubProvider()
+    run_compile(tmp_path, provider)  # first run creates rag.md with a real hash
+
+    page_path = tmp_path / "wiki" / "rag.md"
+    text = page_path.read_text()
+    lines = [line for line in text.splitlines() if not line.startswith("updated_at:")]
+    page_path.write_text("\n".join(lines) + "\n")
+
+    result = run_compile(tmp_path, provider)
+
+    assert result["errors"] == []
+    # source_provenance_hash still matches, but missing updated_at means
+    # "not unchanged" -> regenerated, so it counts as an update not a no-op.
+    assert result["pages_updated"] == 1
+    assert result["pages_new"] == 0
+
+
 def test_run_compile_records_per_concept_llm_error_without_aborting(tmp_path: Path):
     db_path = _seed_qualifying_concept(tmp_path, "c_1", "RAG")
     insert_concept(db_path, "c_2", "Vector Search", "def2", [0.2], False, "2026-07-31T00:00:00Z")
