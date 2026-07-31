@@ -14,6 +14,7 @@ from app.graph_store.store import (
     insert_edge,
     insert_review_queue_entry,
     link_concept_highlight,
+    link_concept_source,
     list_concepts,
     list_edges,
     list_review_queue,
@@ -160,3 +161,15 @@ def test_nearest_neighbors_ranks_by_cosine_similarity(tmp_path: Path):
 
     assert results[0][0]["id"] == "c_close"
     assert results[0][1] > results[1][1]
+
+
+def test_link_concept_source_creates_provenance_row(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
+
+    link_concept_source(db_path, "c_1", "source_a")
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT concept_id, source_id FROM concept_sources").fetchall()
+    assert [(r["concept_id"], r["source_id"]) for r in rows] == [("c_1", "source_a")]

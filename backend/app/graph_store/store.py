@@ -30,6 +30,11 @@ CREATE TABLE IF NOT EXISTS concept_highlights (
   highlight_id TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS concept_sources (
+  concept_id TEXT NOT NULL,
+  source_id TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS edges (
   id TEXT PRIMARY KEY,
   from_id TEXT NOT NULL,
@@ -135,6 +140,18 @@ def link_concept_highlight(db_path: Path, concept_id: str, source_id: str, highl
         conn.execute(
             "INSERT INTO concept_highlights (concept_id, source_id, highlight_id) VALUES (?, ?, ?)",
             (concept_id, source_id, highlight_id),
+        )
+        conn.commit()
+
+
+def link_concept_source(db_path: Path, concept_id: str, source_id: str) -> None:
+    """Provenance for a concept that came from a source's auto-extracted
+    digest concepts, with no highlight involved — the Tier-1 (Phase 6b-2)
+    counterpart to link_concept_highlight."""
+    with _connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO concept_sources (concept_id, source_id) VALUES (?, ?)",
+            (concept_id, source_id),
         )
         conn.commit()
 
