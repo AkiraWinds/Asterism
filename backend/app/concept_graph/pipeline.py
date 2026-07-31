@@ -1,13 +1,18 @@
-"""Orchestrates the synchronous per-highlight pipeline: extract concepts,
-embed each, find nearest-neighbor candidates, judge dedup, and apply/queue
-the result. Triggered inline by POST /sources/{id}/highlights — see
-docs/superpowers/specs/2026-07-30-knowledge-graph-phase6b-design.md.
+"""Orchestrates the synchronous per-highlight (and, per Phase 6b-2, per-source)
+pipeline: for a batch of {term, definition, self_relevant} items, embed each,
+find nearest-neighbor candidates, judge dedup + relationship, and apply/queue
+the result. `process_highlight` is triggered inline by
+POST /sources/{id}/highlights; `process_source_concepts` (added in Phase 6b-2)
+is triggered inline by POST /sources/{id}/analyze. Both share the
+embed→dedup→apply loop via `_dedupe_and_insert`. See
+docs/superpowers/specs/2026-07-30-knowledge-graph-phase6b2-design.md.
 """
 
 import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from app.concept_graph.prompts import (
     build_dedup_prompt,
@@ -22,7 +27,6 @@ from app.graph_store.store import (
     insert_concept,
     insert_edge,
     insert_review_queue_entry,
-    link_concept_highlight,
     nearest_neighbors,
 )
 from app.providers.base import Provider, ProviderError
@@ -32,10 +36,10 @@ from app.schemas.highlight import Highlight
 
 logger = logging.getLogger(__name__)
 
-# The dedup judgment's "relationship" field uses "related_to"/"none" to describe
-# the classified relationship to the neighbor; edge storage only distinguishes
-# related/contradicts/extends, so both of those collapse to "related" when an
-# edge actually gets created.
+# The dedup step's "relationship" field describes what the candidate's
+# relationship to a matched neighbor is; edge storage only distinguishes
+# related/contradicts/extends, so an unrecognized or "related_to"/"none"
+# value collapses to "related" when an edge actually gets created.
 _RELATIONSHIP_TO_EDGE_TYPE = {
     "contradicts": "contradicts",
     "extends": "extends",
@@ -79,42 +83,36 @@ def _select_judgment(judgments: list[dict]) -> dict:
     return judgments[0]
 
 
-def process_highlight(
-    data_root: Path,
-    source_id: str,
-    highlight: Highlight,
+def _dedupe_and_insert(
+    db_path: Path,
+    items: list[dict],
+    note: str | None,
+    link_fn: Callable[[str], None],
     llm_provider: Provider,
     embeddings_api_key: str,
-) -> HighlightProcessResult:
-    db_path = graph_db_path(data_root)
-    # CREATE TABLE IF NOT EXISTS makes this idempotent and cheap — safe to call
-    # on every invocation rather than requiring callers to initialize the store
-    # separately (there's no app-startup hook that does this once).
-    init_db(db_path)
-
-    try:
-        raw_extraction = llm_provider.complete(build_extraction_prompt(highlight.source_quote, highlight.note))
-        extracted = parse_extraction_response(raw_extraction)
-    except (ValueError, ProviderError) as exc:
-        return HighlightProcessResult(highlight=highlight, extraction_error=str(exc))
-
+    log_context: str,
+) -> tuple[list[ConceptNode], list[Edge], list[ReviewQueueEntry], str | None]:
+    """Runs embed -> nearest-neighbor -> dedup-judge -> apply/queue for each
+    item. Returns (concepts, edges, queued, error) — error is None on full
+    success. On a mid-loop failure, whatever was already committed for
+    earlier items in this call is still returned alongside the error string
+    (no rollback), matching this pipeline's existing partial-commit-on-error
+    behavior."""
     created_concepts: list[ConceptNode] = []
     created_edges: list[Edge] = []
     queued: list[ReviewQueueEntry] = []
 
     def _create_concept(item: dict, embedding: list[float]) -> ConceptNode:
-        # Shared by the "no neighbors", "new", and "related_distinct" branches below —
-        # each needs a freshly minted concept row linked back to this highlight.
         concept_id = f"c_{uuid.uuid4().hex[:10]}"
         now = _now_iso()
         insert_concept(db_path, concept_id, item["term"], item["definition"], embedding, item["self_relevant"], now)
-        link_concept_highlight(db_path, concept_id, source_id, highlight.id)
+        link_fn(concept_id)
         return ConceptNode(
             id=concept_id, term=item["term"], definition=item["definition"], self_relevant=item["self_relevant"]
         )
 
     try:
-        for item in extracted:
+        for item in items:
             embedding = embed_text(embeddings_api_key, item["definition"])
             neighbors = nearest_neighbors(db_path, embedding, top_k=3)
 
@@ -123,9 +121,7 @@ def process_highlight(
                 continue
 
             neighbor_payload = [{"id": c["id"], "term": c["term"], "definition": c["definition"]} for c, _ in neighbors]
-            raw_dedup = llm_provider.complete(
-                build_dedup_prompt(item["term"], item["definition"], highlight.note, neighbor_payload)
-            )
+            raw_dedup = llm_provider.complete(build_dedup_prompt(item["term"], item["definition"], note, neighbor_payload))
             judgments = parse_dedup_response(raw_dedup)
 
             best = _select_judgment(judgments)
@@ -140,7 +136,7 @@ def process_highlight(
                 )
 
             if best["judgment"] == "same":
-                link_concept_highlight(db_path, existing["id"], source_id, highlight.id)
+                link_fn(existing["id"])
                 continue
 
             if best["judgment"] == "new":
@@ -168,16 +164,40 @@ def process_highlight(
                     llm_judgment=best["summary"], proposed_edge_type=edge_type, created_at=now,
                 ))
     except (ValueError, ProviderError) as exc:
-        # Dedup/embedding failures degrade the same way as an extraction failure or a
-        # missing embeddings key (see phase6b design doc): stop processing this highlight,
-        # surface extraction_error, but keep anything already committed for earlier items —
-        # no rollback, no crash. `ProviderError` covers ProviderConfigError/ProviderTimeoutError/
-        # ProviderMissingError raised by the LLM provider or embed_text.
-        logger.exception(
-            "Concept graph pipeline failed processing highlight id=%s source_id=%s", highlight.id, source_id
-        )
-        return HighlightProcessResult(
-            highlight=highlight, concepts=created_concepts, edges=created_edges, queued=queued, extraction_error=str(exc)
-        )
+        logger.exception("Concept graph dedup pipeline failed (%s)", log_context)
+        return created_concepts, created_edges, queued, str(exc)
 
-    return HighlightProcessResult(highlight=highlight, concepts=created_concepts, edges=created_edges, queued=queued)
+    return created_concepts, created_edges, queued, None
+
+
+def process_highlight(
+    data_root: Path,
+    source_id: str,
+    highlight: Highlight,
+    llm_provider: Provider,
+    embeddings_api_key: str,
+) -> HighlightProcessResult:
+    db_path = graph_db_path(data_root)
+    # CREATE TABLE IF NOT EXISTS makes this idempotent and cheap — safe to call
+    # on every invocation rather than requiring callers to initialize the store
+    # separately (there's no app-startup hook that does this once).
+    init_db(db_path)
+
+    try:
+        raw_extraction = llm_provider.complete(build_extraction_prompt(highlight.source_quote, highlight.note))
+        extracted = parse_extraction_response(raw_extraction)
+    except (ValueError, ProviderError) as exc:
+        return HighlightProcessResult(highlight=highlight, extraction_error=str(exc))
+
+    from app.graph_store.store import link_concept_highlight
+
+    concepts, edges, queued, error = _dedupe_and_insert(
+        db_path, extracted, highlight.note,
+        link_fn=lambda concept_id: link_concept_highlight(db_path, concept_id, source_id, highlight.id),
+        llm_provider=llm_provider, embeddings_api_key=embeddings_api_key,
+        log_context=f"highlight id={highlight.id} source_id={source_id}",
+    )
+    if error is not None:
+        return HighlightProcessResult(highlight=highlight, concepts=concepts, edges=edges, queued=queued, extraction_error=error)
+
+    return HighlightProcessResult(highlight=highlight, concepts=concepts, edges=edges, queued=queued)
