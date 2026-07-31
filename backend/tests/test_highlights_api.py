@@ -60,6 +60,45 @@ def test_post_highlight_persists_and_creates_concept(tmp_path: Path, monkeypatch
     assert history["highlights"][0]["source_quote"] == "the AI reads first"
 
 
+def test_post_highlight_dedupes_identical_quote_and_note(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    _write_config(tmp_path)
+    source_id = _create_source()
+    _stub_extraction(monkeypatch)
+
+    first = client.post(f"/sources/{source_id}/highlights", json={"source_quote": "the AI reads first"})
+    second = client.post(f"/sources/{source_id}/highlights", json={"source_quote": "the AI reads first"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    first_body, second_body = first.json(), second.json()
+    assert first_body["duplicate"] is False
+    assert second_body["duplicate"] is True
+    assert second_body["highlight"]["id"] == first_body["highlight"]["id"]
+    # No new extraction ran for the duplicate, so no second concept/edge was produced.
+    assert second_body["concepts"] == []
+
+    history = client.get(f"/sources/{source_id}/highlights").json()
+    assert len(history["highlights"]) == 1
+
+
+def test_post_highlight_same_quote_different_note_is_not_a_duplicate(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    _write_config(tmp_path)
+    source_id = _create_source()
+    _stub_extraction(monkeypatch)
+
+    client.post(f"/sources/{source_id}/highlights", json={"source_quote": "the AI reads first"})
+    second = client.post(
+        f"/sources/{source_id}/highlights",
+        json={"source_quote": "the AI reads first", "note": "a distinct annotation"},
+    )
+
+    assert second.json()["duplicate"] is False
+    history = client.get(f"/sources/{source_id}/highlights").json()
+    assert len(history["highlights"]) == 2
+
+
 def test_post_highlight_returns_404_for_unknown_source(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
     _write_config(tmp_path)

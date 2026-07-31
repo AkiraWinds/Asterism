@@ -36,6 +36,7 @@ from app.repositories.source_repository import (
     append_highlight,
     create_source,
     create_source_from_url,
+    find_duplicate_highlight,
     get_source,
     list_sources,
     read_analysis,
@@ -309,6 +310,14 @@ def post_highlight_endpoint(source_id: str, payload: HighlightCreateRequest):
     record = get_source(data_root, source_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Source not found")
+
+    # Same source_quote + note pair already saved for this source (e.g. an
+    # accidental double-submit from the UI): return it as-is rather than
+    # creating a second highlights.json row and re-running the concept-graph
+    # extraction pipeline, which would also add a duplicate provenance link.
+    existing = find_duplicate_highlight(data_root, source_id, payload.source_quote, payload.note)
+    if existing is not None:
+        return HighlightProcessResult(highlight=existing, duplicate=True)
 
     highlight = Highlight(
         id=f"h_{uuid.uuid4().hex[:10]}",

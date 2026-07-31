@@ -117,6 +117,7 @@ export interface HighlightProcessResult {
   edges: GraphEdge[];
   queued: unknown[];
   extraction_error: string | null;
+  duplicate: boolean;
 }
 
 // Backend failures return a structured body — either an AgentErrorResponse

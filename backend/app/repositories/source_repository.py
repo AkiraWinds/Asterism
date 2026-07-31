@@ -208,6 +208,19 @@ def append_highlight(data_root: Path, source_id: str, highlight: Highlight) -> N
     highlights_path.write_text(history.model_dump_json(indent=2))
 
 
+def find_duplicate_highlight(data_root: Path, source_id: str, source_quote: str, note: str | None) -> Highlight | None:
+    """Return an existing highlight in this source with the same (source_quote, note)
+    pair, or None. Exact match after stripping surrounding whitespace — catches the
+    accidental double-submit case (same selection saved twice within seconds), not
+    paraphrases or a deliberate re-highlight with a different note."""
+    normalized_note = note.strip() if note else None
+    for h in read_highlights(data_root, source_id).highlights:
+        existing_note = h.note.strip() if h.note else None
+        if h.source_quote.strip() == source_quote.strip() and existing_note == normalized_note:
+            return h
+    return None
+
+
 def read_highlights(data_root: Path, source_id: str) -> HighlightHistory:
     """Read highlights.json if it exists, else return an empty HighlightHistory."""
     highlights_path = data_root / "library" / source_id / "highlights.json"

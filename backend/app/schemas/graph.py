@@ -50,3 +50,8 @@ class HighlightProcessResult(BaseModel):
     edges: list[Edge] = []
     queued: list[ReviewQueueEntry] = []
     extraction_error: str | None = None
+    # True when this POST matched an existing highlight (same source_quote + note
+    # in this source) and returned it as-is instead of creating a new one — see
+    # find_duplicate_highlight in source_repository.py. concepts/edges/queued are
+    # left empty in this case since no new extraction ran.
+    duplicate: bool = False
