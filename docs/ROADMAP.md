@@ -95,6 +95,18 @@ The centerpiece of the whole rewrite. Fully decided at the design level in `docs
 
 Open questions not yet resolved (deferred until this phase is actually picked up): adapter design for code/structured sources, per-speaker highlight semantics for meeting transcripts, concrete dedup confidence thresholds (needs empirical tuning), where the "seed an entity" UI action lives.
 
+## Phase 6d — Wiki Compile Layer
+
+Not yet built. Spec: `docs/superpowers/specs/2026-07-31-wiki-compile-layer-design.md`. Renders the Phase 6b/6b-2
+concept graph (`graph.db`) into browsable markdown: one page per qualifying concept (`wiki/{slug}.md`, synthesized
+prose grounded in its linked highlights/edges), a regenerated `wiki/index.md` catalog, and an append-only
+`wiki/log.md`, plus a lightweight lint pass (orphan concepts, unexplained contradictions) folded into the same
+run. `graph.db` remains the source of truth — wiki pages are a regenerable projection of it, never written back
+into. Triggered by a new `POST /wiki/compile` endpoint + CLI wrapper, invoked externally via cron/launchd (no
+in-process scheduler). Depends on Phase 6b (built) and ideally Phase 6b-2 (for `concept_sources` provenance,
+unioned if present, tolerated if absent). Explicitly excludes filing chat/query answers back into the wiki as new
+pages — that needs Phase 6c's copilot retrieval first and is parked as a future idea below.
+
 ## Phase 7 — Extension Rewrite
 
 The browser extension (`extension/*.js` in the inherited codebase) is a separate, smaller surface — own-authorship rewrite, independent of the Next.js/Python work above. Not yet scoped.
@@ -106,6 +118,9 @@ Per `todo.md`'s "Deferred: macOS desktop app" section — path not established, 
 ## Post-MVP / Future Ideas (Not Committed)
 
 See `docs/updates/plans/post-mvp-ideas.md` (local-only) — e.g. proactive trend/terminology tracking (system periodically scans for emerging terms in the user's areas of interest, rather than only reacting to user-seeded entities). Explicitly parked, not scheduled into any phase above.
+
+Also parked: filing chat/query answers back into the wiki as new pages (Phase 6d's deferred scope) — needs Phase
+6c's copilot retrieval plus a UI entry point for "save this answer as a page," neither of which exist yet.
 
 ## How Phases Relate (Dependency Order)
 
@@ -122,8 +137,11 @@ Phase 0 (repo split) ──▶ Phase 1 (backend foundation) ──▶ Phase 2 (A
                               ▼                                     ▼
                     Phase 6 (knowledge graph) ◀─────────────────────┘
                               │
-                              ▼
-                    Phase 6c (copilot graph integration, needs Phase 5 + Phase 6b)
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+     Phase 6c (copilot graph      Phase 6d (wiki compile layer,
+     integration, needs           needs Phase 6b, ideally 6b-2 —
+     Phase 5 + Phase 6b)          independent of 6c)
 
 Phase 7 (extension) and Phase 8 (desktop) are independent side-tracks, not on this critical path.
 ```
