@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 
 from app.graph_store.store import list_edges
+from app.repositories.source_repository import get_source, read_highlights
 
 
 def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
@@ -46,3 +47,28 @@ def get_edges_for_concept(db_path: Path, concept_id: str) -> list[dict]:
     """Brute-force filter over all edges — fine at personal-library scale,
     matching the same tradeoff app.graph_store.store.nearest_neighbors makes."""
     return [e for e in list_edges(db_path) if e["from_id"] == concept_id or e["to_id"] == concept_id]
+
+
+def resolve_citations(data_root: Path, provenance: list[dict]) -> list[dict]:
+    """Human-readable citation for each provenance row: {"source_id", "label",
+    "quote"}. quote is the highlight's exact source_quote when the row came
+    from a highlight; None for digest-derived (Phase 6b-2) rows, which have
+    no single quote. label prefers the highlight's denormalized source_title,
+    then the source's own title, then the raw source_id."""
+    highlights_cache: dict[str, dict] = {}
+    citations = []
+    for row in provenance:
+        source_id = row["source_id"]
+        highlight_id = row["highlight_id"]
+        if highlight_id:
+            if source_id not in highlights_cache:
+                history = read_highlights(data_root, source_id)
+                highlights_cache[source_id] = {h.id: h for h in history.highlights}
+            highlight = highlights_cache[source_id].get(highlight_id)
+            if highlight:
+                citations.append({"source_id": source_id, "label": highlight.source_title, "quote": highlight.source_quote})
+                continue
+        record = get_source(data_root, source_id)
+        label = record.title if record else source_id
+        citations.append({"source_id": source_id, "label": label, "quote": None})
+    return citations
