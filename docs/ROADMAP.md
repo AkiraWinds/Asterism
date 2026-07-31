@@ -90,10 +90,22 @@ The centerpiece of the whole rewrite. Fully decided at the design level in `docs
 4. **Ingestion scope**: prose-like sources only for MVP (see Phase 3 note above).
 5. **Storage**: ~~Kuzu~~ **superseded 2026-07-30**: Kuzu was archived in October 2025 after its creator's acquisition by Apple, maintenance passed to an unproven community fork. Phase 6b uses plain SQLite instead (brute-force cosine similarity, no dedicated graph DB) — see `docs/superpowers/specs/2026-07-30-knowledge-graph-phase6b-design.md`.
 6. **Notes ↔ graph integration**: the user's own written notes are highlighted the same way as sources, feeding the same extraction pipeline — this is what makes it a *personal* knowledge graph rather than a reader + a separate notes app.
-7. **Sub-phase roadmap** (within this phase): (a) prompt validation — done, see the Phase-1 doc; (b) **graph-only service — spec + plan written 2026-07-30** (`docs/superpowers/specs/2026-07-30-knowledge-graph-phase6b-design.md`, `docs/superpowers/plans/2026-07-30-knowledge-graph-phase6b.md`), not yet executed: SQLite concept-node store built from user highlights, no copilot changes; (b-2) **new, not yet spec'd** — Tier 1 (automatic article-level graph, see point 1 above): every saved source becomes a graph node automatically, using Phase 4's already-existing `digest.concepts`/`digest.summary` (no highlight required) fed through the same embed→dedup pipeline 6b builds, rather than a separate mechanism — do this right after 6b lands, before 6c; (c) copilot integration — wire the concept graph into hybrid retrieval last.
+7. **Sub-phase roadmap** (within this phase): (a) prompt validation — done, see the Phase-1 doc; (b) **graph-only service — DONE, merged to main (2026-07-30, PR #6)** (`docs/superpowers/specs/2026-07-30-knowledge-graph-phase6b-design.md`, `docs/superpowers/plans/2026-07-30-knowledge-graph-phase6b.md`): SQLite concept-node store built from user highlights, no copilot changes yet — see `docs/updates/sessions/7-30-knowledge-graph-phase6b.md` for the build session and `docs/updates/sessions/7-30-knowledge-graph-phase6b-fence-fix.md` for a post-merge production bug fix; (b-2) **next up, not yet spec'd** — Tier 1 (automatic article-level graph, see point 1 above): every saved source becomes a graph node automatically, using Phase 4's already-existing `digest.concepts`/`digest.summary` (no highlight required) fed through the same embed→dedup pipeline 6b built, rather than a separate mechanism; (c) copilot integration — wire the concept graph into hybrid retrieval last.
 8. **User-seeded entities**: top-down concept watchlist — user declares a term they care about, system searches internally then falls back to web search (reusing the existing Brave key integration), AI drafts a definition, user approves synchronously (unlike per-highlight dedup, this is a deliberate action so blocking is fine).
 
 Open questions not yet resolved (deferred until this phase is actually picked up): adapter design for code/structured sources, per-speaker highlight semantics for meeting transcripts, concrete dedup confidence thresholds (needs empirical tuning), where the "seed an entity" UI action lives.
+
+## Phase 6d — Wiki Compile Layer
+
+Built — see `docs/superpowers/plans/2026-07-31-wiki-compile-layer.md` for the implementation. Spec: `docs/superpowers/specs/2026-07-31-wiki-compile-layer-design.md`. Renders the Phase 6b/6b-2
+concept graph (`graph.db`) into browsable markdown: one page per qualifying concept (`wiki/{slug}.md`, synthesized
+prose grounded in its linked highlights/edges), a regenerated `wiki/index.md` catalog, and an append-only
+`wiki/log.md`, plus a lightweight lint pass (orphan concepts, unexplained contradictions) folded into the same
+run. `graph.db` remains the source of truth — wiki pages are a regenerable projection of it, never written back
+into. Triggered by a new `POST /wiki/compile` endpoint + CLI wrapper, invoked externally via cron/launchd (no
+in-process scheduler). Depends on Phase 6b (built) and ideally Phase 6b-2 (for `concept_sources` provenance,
+unioned if present, tolerated if absent). Explicitly excludes filing chat/query answers back into the wiki as new
+pages — that needs Phase 6c's copilot retrieval first and is parked as a future idea below.
 
 ## Phase 7 — Extension Rewrite
 
@@ -106,6 +118,9 @@ Per `todo.md`'s "Deferred: macOS desktop app" section — path not established, 
 ## Post-MVP / Future Ideas (Not Committed)
 
 See `docs/updates/plans/post-mvp-ideas.md` (local-only) — e.g. proactive trend/terminology tracking (system periodically scans for emerging terms in the user's areas of interest, rather than only reacting to user-seeded entities). Explicitly parked, not scheduled into any phase above.
+
+Also parked: filing chat/query answers back into the wiki as new pages (Phase 6d's deferred scope) — needs Phase
+6c's copilot retrieval plus a UI entry point for "save this answer as a page," neither of which exist yet.
 
 ## How Phases Relate (Dependency Order)
 
@@ -122,8 +137,11 @@ Phase 0 (repo split) ──▶ Phase 1 (backend foundation) ──▶ Phase 2 (A
                               ▼                                     ▼
                     Phase 6 (knowledge graph) ◀─────────────────────┘
                               │
-                              ▼
-                    Phase 6c (copilot graph integration, needs Phase 5 + Phase 6b)
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+     Phase 6c (copilot graph      Phase 6d (wiki compile layer,
+     integration, needs           needs Phase 6b, ideally 6b-2 —
+     Phase 5 + Phase 6b)          independent of 6c)
 
 Phase 7 (extension) and Phase 8 (desktop) are independent side-tracks, not on this critical path.
 ```
