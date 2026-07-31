@@ -124,6 +124,18 @@
   **Why:** already called out as "Out of Scope (Deferred)" in `docs/superpowers/specs/2026-07-29-chat-copilot-design.md`
   — needs a real strategy (sliding window, summarization pass, or token-aware truncation), not a quick patch. Revisit
   once real usage data shows how often sources/conversations approach context limits.
+- ~~**Highlight creation has no duplicate detection**~~ — **Fixed 2026-07-31.** Found while manually testing the
+  wiki compile layer (Phase 6d): a real source's `highlights.json` (`~/AsterismData/library/8208a857da1f/highlights.json`)
+  had 14 entries with several exact-duplicate `source_quote` + `note` pairs created seconds apart — a
+  double-submitted save from the SelectionToolbar UI, since `append_highlight` had no idempotency check. Fix:
+  `find_duplicate_highlight` (`backend/app/repositories/source_repository.py`) does an exact, per-source,
+  whitespace-normalized match on `(source_quote, note)`; `post_highlight_endpoint` returns the existing highlight
+  with `HighlightProcessResult.duplicate=True` and skips `process_highlight` entirely for a match, so no second
+  `concept_highlights` provenance row is created (this was the root cause of the wiki-compile duplicate-citation
+  symptom, not the Phase 6b concept-graph dedup — that pipeline was already correctly collapsing repeats into one
+  concept). Also added a re-entry guard in `SelectionToolbar.tsx` (`isSavingRef` + disabled buttons while a save is
+  in flight) to stop the double-submit at its source. Tests: `test_post_highlight_dedupes_identical_quote_and_note`,
+  `test_post_highlight_same_quote_different_note_is_not_a_duplicate` in `backend/tests/test_highlights_api.py`.
 
 ### Backend rewrite
 - **Hatchling build config**: pyproject.toml requires `[tool.hatch.build.targets.wheel]` with `packages = ["app"]` because hatchling cannot auto-detect that the package directory is named "app" instead of matching the project name "asterism-backend". This is a pragmatic solution; consider aligning the directory name with the project name if the package structure changes.

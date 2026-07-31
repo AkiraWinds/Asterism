@@ -30,6 +30,11 @@ CREATE TABLE IF NOT EXISTS concept_highlights (
   highlight_id TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS concept_sources (
+  concept_id TEXT NOT NULL,
+  source_id TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS edges (
   id TEXT PRIMARY KEY,
   from_id TEXT NOT NULL,
@@ -43,6 +48,7 @@ CREATE TABLE IF NOT EXISTS review_queue (
   candidate_concept_id TEXT NOT NULL,
   existing_concept_id TEXT NOT NULL,
   llm_judgment TEXT NOT NULL,
+  proposed_edge_type TEXT NOT NULL DEFAULT 'related',
   created_at TEXT NOT NULL
 );
 """
@@ -72,6 +78,15 @@ def init_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with _connect(db_path) as conn:
         conn.executescript(SCHEMA)
+        # Migration guard: CREATE TABLE IF NOT EXISTS above is a no-op against a
+        # review_queue table that already exists on disk from Phase 6b — it will
+        # not add this column. See https://www.sqlite.org/lang_altertable.html —
+        # SQLite has no ADD COLUMN IF NOT EXISTS, so check PRAGMA table_info first.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(review_queue)")}
+        if "proposed_edge_type" not in cols:
+            conn.execute(
+                "ALTER TABLE review_queue ADD COLUMN proposed_edge_type TEXT NOT NULL DEFAULT 'related'"
+            )
         conn.commit()
 
 
@@ -129,12 +144,35 @@ def link_concept_highlight(db_path: Path, concept_id: str, source_id: str, highl
         conn.commit()
 
 
+def link_concept_source(db_path: Path, concept_id: str, source_id: str) -> None:
+    """Provenance for a concept that came from a source's auto-extracted
+    digest concepts, with no highlight involved — the Tier-1 (Phase 6b-2)
+    counterpart to link_concept_highlight."""
+    with _connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO concept_sources (concept_id, source_id) VALUES (?, ?)",
+            (concept_id, source_id),
+        )
+        conn.commit()
+
+
 def delete_concept_highlights_for_highlight(db_path: Path, highlight_id: str) -> None:
     """Clear one highlight's provenance links, e.g. before re-running extraction
     on a PATCH note edit. Does not delete the concept rows themselves — a
     concept may still be linked from other highlights."""
     with _connect(db_path) as conn:
         conn.execute("DELETE FROM concept_highlights WHERE highlight_id = ?", (highlight_id,))
+        conn.commit()
+
+
+def delete_concept_sources_for_source(db_path: Path, source_id: str) -> None:
+    """Clear one source's Tier-1 provenance links before re-running
+    process_source_concepts on a re-analyze, e.g. so a retry doesn't
+    re-insert duplicate (concept_id, source_id) rows. Does not delete the
+    concept rows themselves — a concept may still be linked from other
+    sources or highlights."""
+    with _connect(db_path) as conn:
+        conn.execute("DELETE FROM concept_sources WHERE source_id = ?", (source_id,))
         conn.commit()
 
 
@@ -182,13 +220,13 @@ def list_edges(db_path: Path) -> list[dict]:
 
 def insert_review_queue_entry(
     db_path: Path, entry_id: str, candidate_concept_id: str, existing_concept_id: str,
-    llm_judgment: str, created_at: str,
+    llm_judgment: str, created_at: str, proposed_edge_type: str = "related",
 ) -> None:
     with _connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO review_queue (id, candidate_concept_id, existing_concept_id, llm_judgment, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (entry_id, candidate_concept_id, existing_concept_id, llm_judgment, created_at),
+            "INSERT INTO review_queue (id, candidate_concept_id, existing_concept_id, llm_judgment, "
+            "proposed_edge_type, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (entry_id, candidate_concept_id, existing_concept_id, llm_judgment, proposed_edge_type, created_at),
         )
         conn.commit()
 

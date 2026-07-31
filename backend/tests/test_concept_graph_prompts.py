@@ -24,12 +24,11 @@ def test_build_extraction_prompt_omits_note_section_when_none():
 
 def test_parse_extraction_response_returns_concepts():
     raw = json.dumps([
-        {"term": "Local-first storage", "definition": "Filesystem is the source of truth.",
-         "self_relevant": False, "relationship": "none"}
+        {"term": "Local-first storage", "definition": "Filesystem is the source of truth.", "self_relevant": False}
     ])
     concepts = parse_extraction_response(raw)
     assert concepts[0]["term"] == "Local-first storage"
-    assert concepts[0]["relationship"] == "none"
+    assert concepts[0]["self_relevant"] is False
 
 
 def test_parse_extraction_response_raises_on_malformed_json():
@@ -38,14 +37,13 @@ def test_parse_extraction_response_raises_on_malformed_json():
 
 
 def test_parse_extraction_response_raises_on_object_instead_of_list():
-    raw = json.dumps({"term": "Local-first storage", "definition": "def",
-                       "self_relevant": False, "relationship": "none"})
+    raw = json.dumps({"term": "Local-first storage", "definition": "def", "self_relevant": False})
     with pytest.raises(ValueError):
         parse_extraction_response(raw)
 
 
 def test_parse_extraction_response_raises_on_missing_key():
-    raw = json.dumps([{"term": "Local-first storage", "definition": "def", "self_relevant": False}])
+    raw = json.dumps([{"term": "Local-first storage", "definition": "def"}])
     with pytest.raises(ValueError):
         parse_extraction_response(raw)
 
@@ -55,7 +53,7 @@ def test_parse_extraction_response_strips_json_markdown_fence():
     raw = (
         '```json\n[\n    {\n        "term": "Future Vision",\n        '
         '"definition": "A statement indicating a perspective or prediction about what is to come.",\n        '
-        '"self_relevant": false,\n        "relationship": "none"\n    }\n]\n```'
+        '"self_relevant": false\n    }\n]\n```'
     )
     concepts = parse_extraction_response(raw)
     assert concepts[0]["term"] == "Future Vision"
@@ -64,8 +62,7 @@ def test_parse_extraction_response_strips_json_markdown_fence():
 
 def test_parse_extraction_response_strips_plain_markdown_fence():
     raw = "```\n" + json.dumps([
-        {"term": "Local-first storage", "definition": "Filesystem is the source of truth.",
-         "self_relevant": False, "relationship": "none"}
+        {"term": "Local-first storage", "definition": "Filesystem is the source of truth.", "self_relevant": False}
     ]) + "\n```"
     concepts = parse_extraction_response(raw)
     assert concepts[0]["term"] == "Local-first storage"
@@ -85,18 +82,33 @@ def test_build_dedup_prompt_includes_note_override_instruction():
     assert "override" in prompt.lower()
 
 
+def test_build_dedup_prompt_asks_for_relationship_classification():
+    # Relationship classification (contradicts/extends/related_to/none) moved
+    # here from the extraction step (2026-07-31 amendment to the Phase 6b-2
+    # design) so it works even when there's no note to draw from — Tier-1
+    # digest concepts never have one.
+    neighbors = [{"id": "c_1", "term": "X", "definition": "def"}]
+    prompt = build_dedup_prompt("Y", "def", None, neighbors)
+    assert "contradicts" in prompt.lower()
+    assert "extends" in prompt.lower()
+    assert "relationship" in prompt.lower()
+
+
 def test_parse_dedup_response_returns_judgments():
     raw = json.dumps([
-        {"existing_concept_id": "c_1", "judgment": "related_distinct", "confidence": "high", "summary": "s"}
+        {"existing_concept_id": "c_1", "judgment": "related_distinct", "confidence": "high",
+         "relationship": "extends", "summary": "s"}
     ])
     judgments = parse_dedup_response(raw)
     assert judgments[0]["judgment"] == "related_distinct"
     assert judgments[0]["confidence"] == "high"
+    assert judgments[0]["relationship"] == "extends"
 
 
 def test_parse_dedup_response_strips_json_markdown_fence():
     raw = "```json\n" + json.dumps([
-        {"existing_concept_id": "c_1", "judgment": "related_distinct", "confidence": "high", "summary": "s"}
+        {"existing_concept_id": "c_1", "judgment": "related_distinct", "confidence": "high",
+         "relationship": "related_to", "summary": "s"}
     ]) + "\n```"
     judgments = parse_dedup_response(raw)
     assert judgments[0]["judgment"] == "related_distinct"
@@ -104,7 +116,8 @@ def test_parse_dedup_response_strips_json_markdown_fence():
 
 def test_parse_dedup_response_strips_plain_markdown_fence():
     raw = "```\n" + json.dumps([
-        {"existing_concept_id": "c_1", "judgment": "same", "confidence": "high", "summary": "s"}
+        {"existing_concept_id": "c_1", "judgment": "same", "confidence": "high",
+         "relationship": "none", "summary": "s"}
     ]) + "\n```"
     judgments = parse_dedup_response(raw)
     assert judgments[0]["judgment"] == "same"
@@ -116,12 +129,14 @@ def test_parse_dedup_response_raises_on_malformed_json_inside_fence():
 
 
 def test_parse_dedup_response_raises_on_object_instead_of_list():
-    raw = json.dumps({"existing_concept_id": "c_1", "judgment": "same", "confidence": "high", "summary": "s"})
+    raw = json.dumps({"existing_concept_id": "c_1", "judgment": "same", "confidence": "high",
+                       "relationship": "none", "summary": "s"})
     with pytest.raises(ValueError):
         parse_dedup_response(raw)
 
 
 def test_parse_dedup_response_raises_on_missing_key():
-    raw = json.dumps([{"existing_concept_id": "c_1", "judgment": "same", "confidence": "high"}])
+    raw = json.dumps([{"existing_concept_id": "c_1", "judgment": "same", "confidence": "high",
+                        "relationship": "none"}])
     with pytest.raises(ValueError):
         parse_dedup_response(raw)

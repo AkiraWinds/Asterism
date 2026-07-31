@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.chat.prompts import build_chat_prompt
-from app.concept_graph.pipeline import process_highlight
+from app.concept_graph.pipeline import process_highlight, process_source_concepts
 from app.core.config import get_data_root
 from app.graph import build_system_graph, checkpoint_db_path
 from app.graph_store.store import delete_concept_highlights_for_highlight, graph_db_path, init_db
@@ -36,6 +36,7 @@ from app.repositories.source_repository import (
     append_highlight,
     create_source,
     create_source_from_url,
+    find_duplicate_highlight,
     get_source,
     list_sources,
     read_analysis,
@@ -206,6 +207,29 @@ def analyze_source_endpoint(source_id: str):
             return _error_response(400, "config", str(exc))
 
     result = output["result"]
+
+    # Auto-populate the concept graph from this analyze's digest concepts, same
+    # ConfigError-caught-separately pattern as the highlights endpoints below:
+    # a missing/invalid embeddings key surfaces via concept_graph_error rather
+    # than blocking the (already-computed) digest/critique/claims results.
+    if result.digest and result.digest.concepts:
+        # Broad except is intentional here: _dedupe_and_insert only catches
+        # (ValueError, ProviderError) internally, so anything else (e.g. a
+        # locked graph.db raising sqlite3.OperationalError, or an unexpected
+        # embed_text failure) must still be caught here rather than
+        # propagate as an unhandled 500 — otherwise write_analysis below
+        # never runs, and the already-computed digest/critique/claims work
+        # gets stranded looking like "still Processing" (status is inferred
+        # from file existence, not stored).
+        try:
+            llm_provider, embeddings_api_key = _load_llm_and_embeddings(data_root)
+            _, _, _, concept_graph_error = process_source_concepts(
+                data_root, source_id, result.digest.concepts, llm_provider, embeddings_api_key
+            )
+            result.concept_graph_error = concept_graph_error
+        except Exception as exc:
+            result.concept_graph_error = str(exc)
+
     write_analysis(data_root, source_id, result)
     return result
 
@@ -309,6 +333,14 @@ def post_highlight_endpoint(source_id: str, payload: HighlightCreateRequest):
     record = get_source(data_root, source_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Source not found")
+
+    # Same source_quote + note pair already saved for this source (e.g. an
+    # accidental double-submit from the UI): return it as-is rather than
+    # creating a second highlights.json row and re-running the concept-graph
+    # extraction pipeline, which would also add a duplicate provenance link.
+    existing = find_duplicate_highlight(data_root, source_id, payload.source_quote, payload.note)
+    if existing is not None:
+        return HighlightProcessResult(highlight=existing, duplicate=True)
 
     highlight = Highlight(
         id=f"h_{uuid.uuid4().hex[:10]}",

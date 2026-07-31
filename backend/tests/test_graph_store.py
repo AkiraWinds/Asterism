@@ -1,9 +1,11 @@
 # backend/tests/test_graph_store.py
+import sqlite3
 from pathlib import Path
 
 from app.graph_store.store import (
     delete_concept,
     delete_concept_highlights_for_highlight,
+    delete_concept_sources_for_source,
     delete_review_queue_entry,
     get_concept,
     get_review_queue_entry,
@@ -13,6 +15,7 @@ from app.graph_store.store import (
     insert_edge,
     insert_review_queue_entry,
     link_concept_highlight,
+    link_concept_source,
     list_concepts,
     list_edges,
     list_review_queue,
@@ -123,6 +126,33 @@ def test_review_queue_insert_list_get_delete(tmp_path: Path):
     assert get_review_queue_entry(db_path, "rq_1") is None
 
 
+def test_init_db_migrates_review_queue_missing_proposed_edge_type_column(tmp_path: Path):
+    # Simulates a graph.db created before this column existed (Phase 6b).
+    # CREATE TABLE IF NOT EXISTS alone cannot add a column to a table that
+    # already exists on disk — init_db must migrate it.
+    db_path = tmp_path / "graph.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE review_queue (id TEXT PRIMARY KEY, candidate_concept_id TEXT NOT NULL, "
+        "existing_concept_id TEXT NOT NULL, llm_judgment TEXT NOT NULL, created_at TEXT NOT NULL)"
+    )
+    conn.execute(
+        "INSERT INTO review_queue VALUES ('rq_old', 'c_1', 'c_2', 'old row', '2026-07-30T00:00:00Z')"
+    )
+    conn.commit()
+    conn.close()
+
+    init_db(db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(review_queue)")}
+        assert "proposed_edge_type" in cols
+        row = conn.execute("SELECT proposed_edge_type FROM review_queue WHERE id = 'rq_old'").fetchone()
+        assert row["proposed_edge_type"] == "related"
+
+
 def test_nearest_neighbors_ranks_by_cosine_similarity(tmp_path: Path):
     db_path = _new_db(tmp_path)
     insert_concept(db_path, "c_close", "A", "def", [1.0, 0.0], False, "2026-07-30T00:00:00Z")
@@ -132,3 +162,29 @@ def test_nearest_neighbors_ranks_by_cosine_similarity(tmp_path: Path):
 
     assert results[0][0]["id"] == "c_close"
     assert results[0][1] > results[1][1]
+
+
+def test_link_concept_source_creates_provenance_row(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
+
+    link_concept_source(db_path, "c_1", "source_a")
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT concept_id, source_id FROM concept_sources").fetchall()
+    assert [(r["concept_id"], r["source_id"]) for r in rows] == [("c_1", "source_a")]
+
+
+def test_delete_concept_sources_for_source_clears_only_that_sources_links(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
+    link_concept_source(db_path, "c_1", "source_a")
+    link_concept_source(db_path, "c_1", "source_b")
+
+    delete_concept_sources_for_source(db_path, "source_a")
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        remaining = conn.execute("SELECT source_id FROM concept_sources").fetchall()
+    assert [r["source_id"] for r in remaining] == ["source_b"]

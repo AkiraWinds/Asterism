@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -18,7 +19,7 @@ def test_process_highlight_creates_new_concept_when_no_neighbors_exist(tmp_path:
 
     provider = MagicMock()
     provider.complete.return_value = json.dumps([
-        {"term": "AI-first triage", "definition": "AI processes first.", "self_relevant": False, "relationship": "none"}
+        {"term": "AI-first triage", "definition": "AI processes first.", "self_relevant": False}
     ])
 
     with patch(
@@ -35,7 +36,7 @@ def test_process_highlight_creates_new_concept_when_no_neighbors_exist(tmp_path:
 
 
 def test_process_highlight_falls_back_to_related_edge_type_for_unknown_relationship(tmp_path: Path):
-    # `_RELATIONSHIP_TO_EDGE_TYPE` is keyed on the extraction prompt's expected
+    # _RELATIONSHIP_TO_EDGE_TYPE is keyed on the dedup prompt's expected
     # relationship values, but the LLM can return anything as a raw string
     # (_validate_shape only checks key presence, not value membership). A
     # dict-index lookup would raise KeyError (uncaught) rather than degrading
@@ -48,8 +49,9 @@ def test_process_highlight_falls_back_to_related_edge_type_for_unknown_relations
 
     provider = MagicMock()
     provider.complete.side_effect = [
-        json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False, "relationship": "related"}]),
-        json.dumps([{"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "high", "summary": "related"}]),
+        json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False}]),
+        json.dumps([{"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "high",
+                      "relationship": "an_unexpected_value", "summary": "related"}]),
     ]
 
     with patch(
@@ -70,8 +72,9 @@ def test_process_highlight_creates_edge_on_high_confidence_related_distinct(tmp_
 
     provider = MagicMock()
     provider.complete.side_effect = [
-        json.dumps([{"term": "Original vs. derived data model", "definition": "def", "self_relevant": False, "relationship": "extends"}]),
-        json.dumps([{"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "high", "summary": "related, note confirms"}]),
+        json.dumps([{"term": "Original vs. derived data model", "definition": "def", "self_relevant": False}]),
+        json.dumps([{"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "high",
+                      "relationship": "extends", "summary": "related, note confirms"}]),
     ]
 
     with patch(
@@ -88,6 +91,35 @@ def test_process_highlight_creates_edge_on_high_confidence_related_distinct(tmp_
     assert result.queued == []
 
 
+def test_process_highlight_forces_contradicts_into_review_queue_despite_high_confidence(tmp_path: Path):
+    # Even at high dedup confidence, a "contradicts" classification must not
+    # auto-apply as an edge — see the 2026-07-31 amendment: a human-in-the-loop
+    # KG-QA study (arXiv:2602.05512) found 86.5% of LLM-flagged contradictions
+    # were false positives once context was properly considered, so
+    # "contradicts" always routes to the review queue regardless of confidence.
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "X theory", "def", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.side_effect = [
+        json.dumps([{"term": "Anti-X theory", "definition": "def", "self_relevant": False}]),
+        json.dumps([{"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "high",
+                      "relationship": "contradicts", "summary": "these two claims conflict"}]),
+    ]
+
+    with patch(
+        "app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.21]
+    ):
+        result = process_highlight(tmp_path, "source_a", _make_highlight(), provider, "sk-embed")
+
+    assert result.edges == []
+    assert len(result.queued) == 1
+    assert result.queued[0].proposed_edge_type == "contradicts"
+    assert list_review_queue(db_path)[0]["proposed_edge_type"] == "contradicts"
+
+
 def test_process_highlight_queues_medium_confidence_instead_of_creating_edge(tmp_path: Path):
     db_path = graph_db_path(tmp_path)
     init_db(db_path)
@@ -96,8 +128,9 @@ def test_process_highlight_queues_medium_confidence_instead_of_creating_edge(tmp
 
     provider = MagicMock()
     provider.complete.side_effect = [
-        json.dumps([{"term": "Personalized feed ranking", "definition": "def", "self_relevant": False, "relationship": "none"}]),
-        json.dumps([{"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "medium", "summary": "both ranking mechanisms"}]),
+        json.dumps([{"term": "Personalized feed ranking", "definition": "def", "self_relevant": False}]),
+        json.dumps([{"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "medium",
+                      "relationship": "related_to", "summary": "both ranking mechanisms"}]),
     ]
 
     with patch(
@@ -109,6 +142,7 @@ def test_process_highlight_queues_medium_confidence_instead_of_creating_edge(tmp
     assert result.edges == []
     assert len(result.queued) == 1
     assert list_review_queue(db_path)[0]["llm_judgment"] == "both ranking mechanisms"
+    assert list_review_queue(db_path)[0]["proposed_edge_type"] == "related"
 
 
 def test_process_highlight_merges_on_same_judgment_without_new_concept(tmp_path: Path):
@@ -119,8 +153,9 @@ def test_process_highlight_merges_on_same_judgment_without_new_concept(tmp_path:
 
     provider = MagicMock()
     provider.complete.side_effect = [
-        json.dumps([{"term": "AI-first triage", "definition": "def restated", "self_relevant": False, "relationship": "none"}]),
-        json.dumps([{"existing_concept_id": "c_existing", "judgment": "same", "confidence": "high", "summary": "identical"}]),
+        json.dumps([{"term": "AI-first triage", "definition": "def restated", "self_relevant": False}]),
+        json.dumps([{"existing_concept_id": "c_existing", "judgment": "same", "confidence": "high",
+                      "relationship": "none", "summary": "identical"}]),
     ]
 
     with patch(
@@ -155,8 +190,9 @@ def test_process_highlight_creates_new_concept_on_new_judgment_with_neighbors(tm
 
     provider = MagicMock()
     provider.complete.side_effect = [
-        json.dumps([{"term": "Brand new concept", "definition": "def", "self_relevant": False, "relationship": "none"}]),
-        json.dumps([{"existing_concept_id": "c_existing", "judgment": "new", "confidence": "high", "summary": "unrelated"}]),
+        json.dumps([{"term": "Brand new concept", "definition": "def", "self_relevant": False}]),
+        json.dumps([{"existing_concept_id": "c_existing", "judgment": "new", "confidence": "high",
+                      "relationship": "none", "summary": "unrelated"}]),
     ]
 
     with patch(
@@ -180,7 +216,7 @@ def test_process_highlight_sets_extraction_error_on_malformed_dedup_response(tmp
 
     provider = MagicMock()
     provider.complete.side_effect = [
-        json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False, "relationship": "none"}]),
+        json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False}]),
         "not json",
     ]
 
@@ -225,7 +261,7 @@ def test_process_highlight_sets_extraction_error_on_empty_dedup_judgments(tmp_pa
 
     provider = MagicMock()
     provider.complete.side_effect = [
-        json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False, "relationship": "none"}]),
+        json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False}]),
         json.dumps([]),
     ]
 
@@ -253,10 +289,12 @@ def test_process_highlight_prefers_same_judgment_over_earlier_new_judgment(tmp_p
 
     provider = MagicMock()
     provider.complete.side_effect = [
-        json.dumps([{"term": "AI-first triage", "definition": "def restated", "self_relevant": False, "relationship": "none"}]),
+        json.dumps([{"term": "AI-first triage", "definition": "def restated", "self_relevant": False}]),
         json.dumps([
-            {"existing_concept_id": "c_other", "judgment": "new", "confidence": "high", "summary": "unrelated"},
-            {"existing_concept_id": "c_existing", "judgment": "same", "confidence": "high", "summary": "identical"},
+            {"existing_concept_id": "c_other", "judgment": "new", "confidence": "high",
+             "relationship": "none", "summary": "unrelated"},
+            {"existing_concept_id": "c_existing", "judgment": "same", "confidence": "high",
+             "relationship": "none", "summary": "identical"},
         ]),
     ]
 
@@ -285,8 +323,9 @@ def test_process_highlight_sets_extraction_error_on_unknown_existing_concept_id(
 
     provider = MagicMock()
     provider.complete.side_effect = [
-        json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False, "relationship": "none"}]),
-        json.dumps([{"existing_concept_id": "c_does_not_exist", "judgment": "same", "confidence": "high", "summary": "hallucinated id"}]),
+        json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False}]),
+        json.dumps([{"existing_concept_id": "c_does_not_exist", "judgment": "same", "confidence": "high",
+                      "relationship": "none", "summary": "hallucinated id"}]),
     ]
 
     with patch(
@@ -297,3 +336,179 @@ def test_process_highlight_sets_extraction_error_on_unknown_existing_concept_id(
     assert result.extraction_error is not None
     assert result.concepts == []
     assert len(list_concepts(db_path)) == 1
+
+
+from app.concept_graph.pipeline import process_source_concepts
+from app.schemas.analysis import Concept
+
+
+def test_process_source_concepts_creates_new_concepts_with_no_neighbors(tmp_path: Path):
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([])  # no dedup call needed (no neighbors)
+
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.2]):
+        concepts, edges, queued, error = process_source_concepts(
+            tmp_path, "source_a",
+            [Concept(id="dc_1", term="RAG", definition="Retrieval-augmented generation.")],
+            provider, "sk-embed",
+        )
+
+    assert error is None
+    assert len(concepts) == 1
+    assert concepts[0].term == "RAG"
+    assert concepts[0].self_relevant is False
+    stored = list_concepts(db_path)
+    assert len(stored) == 1
+    assert stored[0]["self_relevant"] == 0
+    import sqlite3
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT concept_id, source_id FROM concept_sources").fetchall()
+    assert [(r["concept_id"], r["source_id"]) for r in rows] == [(concepts[0].id, "source_a")]
+
+
+def test_process_source_concepts_skips_extraction_llm_call(tmp_path: Path):
+    # Phase 4's analysis pipeline already produced term/definition — no
+    # extraction LLM call should happen, only dedup (and here, not even
+    # that, since there are no existing concepts to compare against).
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+
+    provider = MagicMock()
+
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.2]):
+        process_source_concepts(
+            tmp_path, "source_a",
+            [Concept(id="dc_1", term="RAG", definition="def")],
+            provider, "sk-embed",
+        )
+
+    provider.complete.assert_not_called()
+
+
+def test_process_source_concepts_links_same_match_via_concept_sources(tmp_path: Path):
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "RAG", "def", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"existing_concept_id": "c_existing", "judgment": "same", "confidence": "high",
+         "relationship": "none", "summary": "identical"}
+    ])
+
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.2]):
+        concepts, edges, queued, error = process_source_concepts(
+            tmp_path, "source_a",
+            [Concept(id="dc_1", term="RAG", definition="def restated")],
+            provider, "sk-embed",
+        )
+
+    assert error is None
+    assert concepts == []
+    assert len(list_concepts(db_path)) == 1
+    import sqlite3
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT concept_id, source_id FROM concept_sources WHERE source_id = 'source_a'").fetchall()
+    assert [r["concept_id"] for r in rows] == ["c_existing"]
+
+
+def test_process_source_concepts_classifies_contradiction_between_two_sources(tmp_path: Path):
+    # The core capability gap this task fixes: Tier-1 concepts have no note,
+    # so relationship classification must come purely from the two
+    # definitions — and "contradicts" must still be forced into the review
+    # queue rather than auto-applied.
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "X theory", "X is true.", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "high",
+         "relationship": "contradicts", "summary": "these conflict"}
+    ])
+
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.11, 0.19]):
+        concepts, edges, queued, error = process_source_concepts(
+            tmp_path, "source_b",
+            [Concept(id="dc_2", term="Anti-X theory", definition="X is false.")],
+            provider, "sk-embed",
+        )
+
+    assert error is None
+    assert edges == []
+    assert len(queued) == 1
+    assert queued[0].proposed_edge_type == "contradicts"
+
+
+def test_process_source_concepts_returns_error_on_provider_failure(tmp_path: Path):
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "RAG", "def", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.side_effect = ProviderConfigError("Error code: 401 - invalid x-api-key")
+
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.21]):
+        concepts, edges, queued, error = process_source_concepts(
+            tmp_path, "source_a",
+            [Concept(id="dc_1", term="Some concept", definition="def")],
+            provider, "sk-embed",
+        )
+
+    assert error is not None
+    assert "401" in error
+
+
+def test_process_source_concepts_retry_does_not_duplicate_provenance_row(tmp_path: Path):
+    # analyze is retryable (see analyze_source_endpoint), so process_source_concepts
+    # can run more than once for the same source_id. The first run creates the
+    # concept fresh (no neighbors); the second run then sees that concept as a
+    # neighbor and (via a mocked "same" dedup judgment) links to it again. Without
+    # clearing prior concept_sources rows for this source_id first, the second run
+    # would insert a second (concept_id, source_id) row.
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([])  # first run: no neighbors, no dedup call
+
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.2]):
+        concepts, _, _, error = process_source_concepts(
+            tmp_path, "source_a",
+            [Concept(id="dc_1", term="RAG", definition="Retrieval-augmented generation.")],
+            provider, "sk-embed",
+        )
+    assert error is None
+    assert len(concepts) == 1
+    concept_id = concepts[0].id
+
+    # Second run: the concept from the first run is now a neighbor, so dedup
+    # gets called; mock it to judge "same" (the realistic no-op-content case).
+    provider.complete.return_value = json.dumps([
+        {"existing_concept_id": concept_id, "judgment": "same", "confidence": "high",
+         "relationship": "none", "summary": "identical"}
+    ])
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.2]):
+        concepts2, _, _, error2 = process_source_concepts(
+            tmp_path, "source_a",
+            [Concept(id="dc_1", term="RAG", definition="Retrieval-augmented generation.")],
+            provider, "sk-embed",
+        )
+    assert error2 is None
+    assert concepts2 == []
+
+    assert len(list_concepts(db_path)) == 1
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT concept_id, source_id FROM concept_sources WHERE source_id = 'source_a'"
+        ).fetchall()
+    assert [(r["concept_id"], r["source_id"]) for r in rows] == [(concept_id, "source_a")]

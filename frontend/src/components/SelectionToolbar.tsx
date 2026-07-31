@@ -53,6 +53,13 @@ export function SelectionToolbar({
   // into a component that's now rendering null, avoiding a stray state
   // update landing on a no-longer-visible toolbar.
   const isActiveRef = useRef(false);
+  // Guards handleSaveAsNote/handleSubmitComment against firing twice for one
+  // click (e.g. a fast double-click before the button disables itself in the
+  // next render). A ref, not state, because it must block the second call
+  // synchronously — state updates aren't visible until re-render. isSaving
+  // (state, below) mirrors it just to drive the disabled= attribute.
+  const isSavingRef = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // The single definition of "reset all toolbar-owned state." Every close
   // path (Escape, outside mouseup, a new out-of-container selection, and the
@@ -67,12 +74,14 @@ export function SelectionToolbar({
       resetTimeoutRef.current = null;
     }
     isActiveRef.current = false;
+    isSavingRef.current = false;
     setPosition(null);
     setSelectedText("");
     setCommentMode(false);
     setCommentText("");
     setSaveError(null);
     setSaveSuccessMessage(null);
+    setIsSaving(false);
   }, []);
 
   // Any pending "auto-dismiss after showing success" timeout must be cleared
@@ -187,6 +196,9 @@ export function SelectionToolbar({
   }, [containerRef, onHighlightSelected, resetToolbar]);
 
   async function handleSaveAsNote() {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
+    setIsSaving(true);
     setSaveError(null);
     try {
       const result = await saveHighlight(sourceId, selectedText, null);
@@ -198,21 +210,28 @@ export function SelectionToolbar({
         // resetToolbar() as if nothing happened.
         if (isActiveRef.current) {
           setSaveError(`Saved, but concept extraction failed: ${result.extraction_error}`);
+          isSavingRef.current = false;
+          setIsSaving(false);
         }
       } else if (isActiveRef.current) {
         // Brief visible confirmation of what happened, then reset as before —
         // delayed rather than immediate so the message actually gets seen.
-        setSaveSuccessMessage(summarizeSave(result));
+        setSaveSuccessMessage(result.duplicate ? "Already saved" : summarizeSave(result));
         resetTimeoutRef.current = setTimeout(resetToolbar, 2000);
       }
     } catch (err) {
       if (isActiveRef.current) {
         setSaveError(err instanceof Error ? err.message : "Failed to save highlight");
+        isSavingRef.current = false;
+        setIsSaving(false);
       }
     }
   }
 
   async function handleSubmitComment() {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
+    setIsSaving(true);
     setSaveError(null);
     try {
       const result = await saveHighlight(sourceId, selectedText, commentText.trim() || null);
@@ -221,16 +240,20 @@ export function SelectionToolbar({
         // extraction failed. Leave the toolbar open so the user sees why.
         if (isActiveRef.current) {
           setSaveError(`Saved, but concept extraction failed: ${result.extraction_error}`);
+          isSavingRef.current = false;
+          setIsSaving(false);
         }
       } else if (isActiveRef.current) {
         // Brief visible confirmation of what happened, then reset as before —
         // delayed rather than immediate so the message actually gets seen.
-        setSaveSuccessMessage(summarizeSave(result));
+        setSaveSuccessMessage(result.duplicate ? "Already saved" : summarizeSave(result));
         resetTimeoutRef.current = setTimeout(resetToolbar, 2000);
       }
     } catch (err) {
       if (isActiveRef.current) {
         setSaveError(err instanceof Error ? err.message : "Failed to save highlight");
+        isSavingRef.current = false;
+        setIsSaving(false);
       }
     }
   }
@@ -256,16 +279,31 @@ export function SelectionToolbar({
             placeholder="Your note…"
             className="rounded border border-neutral-300 px-2 py-1 text-xs dark:border-neutral-600 dark:bg-neutral-900"
           />
-          <button type="button" onClick={handleSubmitComment} className="rounded px-2 py-1 text-xs text-neutral-700 dark:text-neutral-200">
+          <button
+            type="button"
+            onClick={handleSubmitComment}
+            disabled={isSaving}
+            className="rounded px-2 py-1 text-xs text-neutral-700 disabled:opacity-50 dark:text-neutral-200"
+          >
             Save
           </button>
         </div>
       ) : (
         <div className="flex gap-1">
-          <button type="button" onClick={handleSaveAsNote} className="rounded px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700">
+          <button
+            type="button"
+            onClick={handleSaveAsNote}
+            disabled={isSaving}
+            className="rounded px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-100 disabled:opacity-50 dark:text-neutral-200 dark:hover:bg-neutral-700"
+          >
             Save as note
           </button>
-          <button type="button" onClick={() => setCommentMode(true)} className="rounded px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700">
+          <button
+            type="button"
+            onClick={() => setCommentMode(true)}
+            disabled={isSaving}
+            className="rounded px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-100 disabled:opacity-50 dark:text-neutral-200 dark:hover:bg-neutral-700"
+          >
             Add comment
           </button>
         </div>

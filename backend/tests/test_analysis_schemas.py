@@ -114,3 +114,9 @@ def test_analysis_result_allows_null_fields_with_error():
 def test_concept_model():
     concept = Concept(id="c1", term="RAG", definition="Retrieval-augmented generation.")
     assert concept.term == "RAG"
+
+
+def test_analysis_result_accepts_concept_graph_error():
+    result = AnalysisResult(analyzed_at="2026-07-31T00:00:00Z", concept_graph_error="missing embeddings_api_key")
+    assert result.concept_graph_error == "missing embeddings_api_key"
+    assert result.digest is None
