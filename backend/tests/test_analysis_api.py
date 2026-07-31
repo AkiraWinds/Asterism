@@ -137,3 +137,64 @@ def test_analyze_missing_source_returns_404(tmp_path: Path, monkeypatch):
     response = client.post("/sources/does-not-exist/analyze")
 
     assert response.status_code == 404
+
+
+def test_analyze_populates_concept_graph_from_digest_concepts(tmp_path: Path, monkeypatch):
+    from app.graph_store.store import graph_db_path, init_db, list_concepts
+
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    (tmp_path / "config.json").write_text(
+        '{"strategy": "api-key", "provider": "anthropic", "api_key": "fake", "embeddings_api_key": "sk-embed"}'
+    )
+    source_id = _create_source()
+
+    provider = _fake_provider(
+        {
+            "Score how much attention": '{"score": 78, "action": "worth_reading", "reason": "x", "read_time_minutes": 5, "density": 70, "originality": 60}',
+            "Summarize this content": '{"summary": "A summary.", "highlights": [], "concepts": [{"term": "RAG", "definition": "Retrieval-augmented generation."}], "structure": []}',
+            "Critically evaluate": '{"hidden_assumptions": [], "potential_issues": [], "needs_verification": [], "bias_indicators": []}',
+            "Extract up to 8": '{"claims": []}',
+        }
+    )
+    monkeypatch.setattr("app.analysis.nodes.build_provider", lambda config, data_root: provider)
+    monkeypatch.setattr("app.routers.sources.build_provider", lambda config, data_root: provider)
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+
+    response = client.post(f"/sources/{source_id}/analyze")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["digest"]["summary"] == "A summary."
+    assert body["concept_graph_error"] is None
+
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    stored = list_concepts(db_path)
+    assert len(stored) == 1
+    assert stored[0]["term"] == "RAG"
+
+
+def test_analyze_sets_concept_graph_error_when_embeddings_key_missing(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    (tmp_path / "config.json").write_text('{"strategy": "api-key", "provider": "anthropic", "api_key": "fake"}')
+    source_id = _create_source()
+
+    provider = _fake_provider(
+        {
+            "Score how much attention": '{"score": 78, "action": "worth_reading", "reason": "x", "read_time_minutes": 5, "density": 70, "originality": 60}',
+            "Summarize this content": '{"summary": "A summary.", "highlights": [], "concepts": [{"term": "RAG", "definition": "def"}], "structure": []}',
+            "Critically evaluate": '{"hidden_assumptions": [], "potential_issues": [], "needs_verification": [], "bias_indicators": []}',
+            "Extract up to 8": '{"claims": []}',
+        }
+    )
+    monkeypatch.setattr("app.analysis.nodes.build_provider", lambda config, data_root: provider)
+
+    response = client.post(f"/sources/{source_id}/analyze")
+
+    assert response.status_code == 200
+    body = response.json()
+    # The analysis itself must still fully succeed even though the concept-graph
+    # step can't run — this mirrors HighlightProcessResult's "the highlight
+    # always persists even if extraction fails" precedent.
+    assert body["digest"]["summary"] == "A summary."
+    assert body["concept_graph_error"] is not None

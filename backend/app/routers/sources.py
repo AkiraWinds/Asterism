@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.chat.prompts import build_chat_prompt
-from app.concept_graph.pipeline import process_highlight
+from app.concept_graph.pipeline import process_highlight, process_source_concepts
 from app.core.config import get_data_root
 from app.graph import build_system_graph, checkpoint_db_path
 from app.graph_store.store import delete_concept_highlights_for_highlight, graph_db_path, init_db
@@ -207,6 +207,22 @@ def analyze_source_endpoint(source_id: str):
             return _error_response(400, "config", str(exc))
 
     result = output["result"]
+
+    # Auto-populate the concept graph from this analyze's digest concepts, same
+    # ConfigError-caught-separately pattern as the highlights endpoints below:
+    # a missing/invalid embeddings key surfaces via concept_graph_error rather
+    # than blocking the (already-computed) digest/critique/claims results.
+    if result.digest and result.digest.concepts:
+        try:
+            llm_provider, embeddings_api_key = _load_llm_and_embeddings(data_root)
+        except ConfigError as exc:
+            result.concept_graph_error = str(exc)
+        else:
+            _, _, _, concept_graph_error = process_source_concepts(
+                data_root, source_id, result.digest.concepts, llm_provider, embeddings_api_key
+            )
+            result.concept_graph_error = concept_graph_error
+
     write_analysis(data_root, source_id, result)
     return result
 
