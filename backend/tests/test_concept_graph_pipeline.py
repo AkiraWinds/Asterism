@@ -335,3 +335,132 @@ def test_process_highlight_sets_extraction_error_on_unknown_existing_concept_id(
     assert result.extraction_error is not None
     assert result.concepts == []
     assert len(list_concepts(db_path)) == 1
+
+
+from app.concept_graph.pipeline import process_source_concepts
+from app.schemas.analysis import Concept
+
+
+def test_process_source_concepts_creates_new_concepts_with_no_neighbors(tmp_path: Path):
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([])  # no dedup call needed (no neighbors)
+
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.2]):
+        concepts, edges, queued, error = process_source_concepts(
+            tmp_path, "source_a",
+            [Concept(id="dc_1", term="RAG", definition="Retrieval-augmented generation.")],
+            provider, "sk-embed",
+        )
+
+    assert error is None
+    assert len(concepts) == 1
+    assert concepts[0].term == "RAG"
+    assert concepts[0].self_relevant is False
+    stored = list_concepts(db_path)
+    assert len(stored) == 1
+    assert stored[0]["self_relevant"] == 0
+    import sqlite3
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT concept_id, source_id FROM concept_sources").fetchall()
+    assert [(r["concept_id"], r["source_id"]) for r in rows] == [(concepts[0].id, "source_a")]
+
+
+def test_process_source_concepts_skips_extraction_llm_call(tmp_path: Path):
+    # Phase 4's analysis pipeline already produced term/definition — no
+    # extraction LLM call should happen, only dedup (and here, not even
+    # that, since there are no existing concepts to compare against).
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+
+    provider = MagicMock()
+
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.2]):
+        process_source_concepts(
+            tmp_path, "source_a",
+            [Concept(id="dc_1", term="RAG", definition="def")],
+            provider, "sk-embed",
+        )
+
+    provider.complete.assert_not_called()
+
+
+def test_process_source_concepts_links_same_match_via_concept_sources(tmp_path: Path):
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "RAG", "def", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"existing_concept_id": "c_existing", "judgment": "same", "confidence": "high",
+         "relationship": "none", "summary": "identical"}
+    ])
+
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.2]):
+        concepts, edges, queued, error = process_source_concepts(
+            tmp_path, "source_a",
+            [Concept(id="dc_1", term="RAG", definition="def restated")],
+            provider, "sk-embed",
+        )
+
+    assert error is None
+    assert concepts == []
+    assert len(list_concepts(db_path)) == 1
+    import sqlite3
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT concept_id, source_id FROM concept_sources WHERE source_id = 'source_a'").fetchall()
+    assert [r["concept_id"] for r in rows] == ["c_existing"]
+
+
+def test_process_source_concepts_classifies_contradiction_between_two_sources(tmp_path: Path):
+    # The core capability gap this task fixes: Tier-1 concepts have no note,
+    # so relationship classification must come purely from the two
+    # definitions — and "contradicts" must still be forced into the review
+    # queue rather than auto-applied.
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "X theory", "X is true.", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "high",
+         "relationship": "contradicts", "summary": "these conflict"}
+    ])
+
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.11, 0.19]):
+        concepts, edges, queued, error = process_source_concepts(
+            tmp_path, "source_b",
+            [Concept(id="dc_2", term="Anti-X theory", definition="X is false.")],
+            provider, "sk-embed",
+        )
+
+    assert error is None
+    assert edges == []
+    assert len(queued) == 1
+    assert queued[0].proposed_edge_type == "contradicts"
+
+
+def test_process_source_concepts_returns_error_on_provider_failure(tmp_path: Path):
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "RAG", "def", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.side_effect = ProviderConfigError("Error code: 401 - invalid x-api-key")
+
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.21]):
+        concepts, edges, queued, error = process_source_concepts(
+            tmp_path, "source_a",
+            [Concept(id="dc_1", term="Some concept", definition="def")],
+            provider, "sk-embed",
+        )
+
+    assert error is not None
+    assert "401" in error
