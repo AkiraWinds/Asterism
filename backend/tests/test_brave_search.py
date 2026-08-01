@@ -44,3 +44,21 @@ def test_search_web_raises_provider_error_on_non_2xx(monkeypatch):
 
     with pytest.raises(ProviderError):
         search_web("bad-key", "Agentic AI")
+
+
+def test_search_web_raises_provider_error_on_timeout(monkeypatch):
+    def fake_get(url, headers=None, params=None, timeout=None):
+        raise httpx.TimeoutException("request timed out")
+    monkeypatch.setattr(httpx, "get", fake_get)
+
+    with pytest.raises(ProviderError):
+        search_web("fake-key", "Agentic AI")
+
+
+def test_search_web_raises_provider_error_on_connection_error(monkeypatch):
+    def fake_get(url, headers=None, params=None, timeout=None):
+        raise httpx.ConnectError("connection refused")
+    monkeypatch.setattr(httpx, "get", fake_get)
+
+    with pytest.raises(ProviderError):
+        search_web("fake-key", "Agentic AI")
