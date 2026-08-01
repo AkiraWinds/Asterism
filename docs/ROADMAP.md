@@ -8,6 +8,8 @@ Per `docs/updates/plans/7-18-customize-personal-system.md` (local-only): Asteris
 
 Two independent motivations drive the current rewrite specifically: **ownership** (the inherited "second brain" codebase should become genuinely the user's own code, not carried-over authorship) and a **deliberate stack change** to Python + LangGraph + a real knowledge graph, replacing the inherited Next.js-does-everything architecture.
 
+**Legacy status (decided 2026-08-01)**: the inherited Next.js monolith (`src/`, `src-tauri/` — what `README.md` currently describes as "what ships today") is now **fully frozen**. No further commits land there, security fixes included. It's kept only as reference material for porting its missing functionality — Dashboard, Feed, Notebook, folder tree, desktop shell — into `backend/`+`frontend/` below. See `docs/superpowers/specs/2026-08-01-legacy-freeze-decision-design.md`. Phases below that involve rebuilding legacy-only features (e.g. Phase 7's extension rewrite, and any future Dashboard/Feed/Notebook phase) are explicitly *porting from legacy*, not new invention.
+
 ## Phase 0 — Repo Independence (DONE)
 
 Split Asterism from its "second brain" origin into a genuinely independent repo: fresh git history, MIT attribution preserved, old full-history copy kept at `Asterism_back/` for reference. See `docs/updates/plans/7-25-second-brain-inheritance-audit.md` (local-only) and `docs/updates/sessions/7-25-repo-split-and-backend-foundation.md`.
