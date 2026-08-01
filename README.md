@@ -1,26 +1,17 @@
 <div align="center">
 
-<img src="extension/Asterism.png" width="72" alt="Asterism" />
+<img src="docs/assets/Asterism.png" width="72" alt="Asterism" />
 
 # Asterism
 
 ### Every note is a star. Understanding begins when we connect them.
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Node 20+](https://img.shields.io/badge/Node-20%2B-blue.svg)](#get-started-in-2-minutes)
-[![Local-first](https://img.shields.io/badge/Local--first-your%20files%2C%20your%20machine-8b5cf6.svg)](#your-data-stays-yours)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 **An asterism is a pattern people draw between stars — the stars themselves aren't
 connected, we make the connection. Every note, article, and conversation you capture
 is a star on its own. Asterism's job is the connections you and your agent draw
 between them.**
 
-[Vision](#vision) · [What ships today](#what-ships-today) · [Get started](#get-started-in-2-minutes) · [Why local-first](#your-data-stays-yours)
-
-![Asterism demo — capture a link, read the triage, browse your curated feed](docs/assets/second-brain-demo.gif)
-
-**[▶ Watch the full video](https://x.com/ranli_thinker/status/2073458125391425759)**
+[Vision](#vision) · [What ships today](#what-ships-today) · [Get started](#get-started) · [Architecture](#architecture) · [Why local-first](#your-data-stays-yours)
 
 </div>
 
@@ -33,140 +24,107 @@ Asterism is a local-first personal knowledge base with an agent inside — but t
 > Knowledge is not valuable because it is stored. It becomes valuable because meaningful relationships are discovered.
 
 ```text
-Markdown · Notion · PDFs · GitHub repos · Web articles · Meeting notes · Chat history
-                              │
-                              ▼
-                        Knowledge Graph
-                              │
-        Semantic search · Entity linking · Relationship discovery · AI copilot
+              Capture (URL or text)
+                        │
+                        ▼
+                Fetch + extract
+                        │
+                        ▼
+   Triage · Digest · Critique · Claims ──── Streaming chat over the source
+                        │
+                        ▼
+             Source-to-source connections
+                        │
+                        ▼
+                Highlights you save
+                        │
+                        ▼
+   Concept extraction → embedding → dedup
+                        │
+                        ▼
+             Knowledge graph (SQLite)
+                        │
+                        ▼
+        Wiki (browsable markdown pages)
 ```
 
-Today's app is the first layer: capture, triage, and cross-checking. The graph, multi-source ingestion, and graph-aware retrieval are the direction. Everything in [What ships today](#what-ships-today) is what actually exists right now.
+Everything in [What ships today](#what-ships-today) is what actually exists right now, built on the current backend/frontend stack. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full phase-by-phase plan of where this is headed (copilot retrieval across the whole library, a Dashboard/Feed, the browser extension).
 
 ## What ships today
 
 ### Capture, triage, and cross-check
 
-Nobody needs one more tool that turns essays into three bullets so you can pretend you read them. Asterism's AI does two jobs, and reading for you isn't one of them:
+- **Capture** — paste a URL or raw text and Asterism fetches, extracts, and stores it (`trafilatura`, with an AI fallback for thin extractions).
+- **Triage Card** — every source gets a read-time estimate, a density/novelty read, and a deep-read/skim/skip recommendation before you commit to reading it.
+- **Digest, Critique, Claims** — a LangGraph fan-out/fan-in pipeline pulls a summary, hidden assumptions, and atomic, source-quote-anchored claims out of the content, each field independently retryable.
+- **Source-to-source connections** — claims are checked against your existing library for what they support, repeat, or contradict.
 
-- **Capture in seconds** — paste a link or text, drop a PDF or image, or one-click the Chrome extension (logged-in and JS-rendered pages included).
-- **Filter before you read** — every capture is scored and critiqued, so AI slop and shallow takes get flagged before they cost you twenty minutes.
-- **Let the library argue with itself** — new captures are checked against your existing sources: what they support, repeat, or **contradict**.
+Every verdict is advisory and every analysis field is editable — the reader stays human.
 
-Every verdict is advisory, every analysis editable — the reader stays human.
+### Chat over what you've read
 
-<div align="center">
-<img src="docs/assets/source-view.png" width="850" alt="Reading view — the original text front and center, with score, verdict, and a Contradicts connection beside it" />
-<br/>
-<em>The original stays front and center. The verdict, the critique, and a "this contradicts what you read last week" sit beside it.</em>
-</div>
+Per-source streaming chat (SSE), with multiple named conversations per source and text-selection auto-attach as context, so you can ask a source a question instead of re-reading it.
 
-### Agentic, and it learns from you
+### The knowledge graph
 
-- **Your library is the agent's workspace** — plain local files the agent reads and organizes directly. Ask it to reorganize the library or draft a post from what you've been reading lately, straight into your Notebook.
-- **It learns from your behavior** — clicks, ratings, starred highlights, and Knew/Learned tracking become local feedback signals that sharpen the agent over time.
-- **A feed that knows your library** — "For You" ranks RSS (and optional web search) against your interests and reading history, no API key required.
-- **Memory you can read** — `USER.md` holds your explicit preferences; `MEMORY.md` is the agent's own evolving, editable notes about you.
+- **Highlights become graph nodes** — anything you highlight is run through concept extraction → embedding → nearest-neighbor dedup. High-confidence merges auto-apply; ambiguous ones (and anything flagged `contradicts`) queue for your review.
+- **Every analyzed source is a node too** — an automatic, cheaper Tier-1 pass feeds each source's digest concepts through the same pipeline, no highlight required.
+- **Per-point feedback** — thumbs up/down individual Digest concepts, Claims, or Critique points; a thumbs-up can be promoted straight into the graph.
+- **Wiki compile** — renders the graph into browsable markdown: one synthesized page per qualifying concept, a regenerated index, and an append-only change log. The graph stays the source of truth; wiki pages are a regenerable projection of it.
 
-<div align="center">
-<img src="docs/assets/agent.png" width="880" alt="Agent panel beside the reading view — a real question answered from the whole library, with the tool operations it ran" />
-<br/>
-<em>Ask across your library — the agent works the same files you see, and shows its work.</em>
-</div>
+## Get started
 
-## Get started in 2 minutes
-
-All you need is **Node 20+** and one agent CLI you already use, signed in:
-[Claude Code](https://docs.claude.com/en/docs/claude-code/setup) (`claude`) or [OpenAI Codex](https://github.com/openai/codex) (`codex`).
-Core analysis runs through that local CLI: no separate model API key, no metered bill from Asterism.
+You need **Python 3.11+** with [uv](https://docs.astral.sh/uv/), **Node 20+**, and one agent CLI you already use, signed in: [Claude Code](https://docs.claude.com/en/docs/claude-code/setup) (`claude`) or [OpenAI Codex](https://github.com/openai/codex) (`codex`) — or an Anthropic/OpenAI API key instead.
 
 ```bash
 git clone https://github.com/AkiraWinds/Asterism.git
 cd Asterism
+```
+
+**Backend** (FastAPI, port 8000):
+
+```bash
+cd backend
+uv sync
+uv run uvicorn app.main:app --reload --port 8000
+```
+
+Data is stored under `$ASTERISM_DATA_ROOT` (defaults to `~/AsterismData`). Create `config.json` there to pick your agent:
+
+```json
+{ "strategy": "cli", "provider": "claude" }
+```
+
+or, for a direct API key instead of a CLI session:
+
+```json
+{ "strategy": "api-key", "provider": "anthropic", "api_key": "sk-ant-..." }
+```
+
+The knowledge graph's embedding step always calls OpenAI directly (Anthropic has no embeddings endpoint, and CLI providers can't embed at all) — set `"embeddings_api_key"` in the same `config.json` for that feature to work.
+
+**Frontend** (Next.js, port 3000):
+
+```bash
+cd frontend
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), confirm your agent shows **Connected**, and hit **Enable Agent Mode**. First launch seeds a small example library so you can feel the product before capturing anything.
+Open [http://localhost:3000](http://localhost:3000).
 
-Want a guided path? See [docs/ONBOARDING.md](docs/ONBOARDING.md).
+## Architecture
 
-The optional **Chrome extension** captures pages exactly as you see them — including logged-in pages, JS-heavy apps, and tweets. Load it from `chrome://extensions` → **Load unpacked** → select the `extension/` folder. No extension? Paste links, text, PDFs, and images straight into the dashboard.
+- **`backend/`** — Python/FastAPI owns everything: local-first file storage, AI provider abstraction (CLI-subprocess or API key), content ingestion/analysis, the knowledge graph, and chat. Analysis pipelines are built as LangGraph graphs so individual fields checkpoint and retry independently.
+- **`frontend/`** — Next.js is a thin client over the backend's REST/SSE API. No business logic lives here.
+- **`docs/`** — architecture specs, phase plans, and dated session summaries; start at [`docs/INDEX.md`](docs/INDEX.md) or [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+An earlier Next.js-does-everything monolith (what used to live at the repo root) is now frozen and kept locally only as reference material for porting a few features it has that the rewrite doesn't yet (Dashboard, Feed, Notebook, folder tree, the browser extension) — it's no longer tracked in this repo.
 
 ## Your data stays yours
 
-- **You choose where it lives** — the default local folder, or point `SECONDBRAIN_ROOT` at any folder you control.
-- **Captures are preserved as evidence** — originals stay untouched; AI analysis is editable and regenerable.
-- **No Asterism cloud** — everything is analyzed through your authenticated local agent session, never a hosted backend.
+- **You choose where it lives** — `$ASTERISM_DATA_ROOT`, any folder you control.
+- **Captures are preserved as evidence** — `meta.json` and the original fetched content are written once and never modified; analysis, chat, and derived files are editable and regenerable.
+- **No Asterism cloud** — analysis runs through your own authenticated agent session or your own API key, never a hosted backend.
 
-Your user data folder is just files: a `Library/` of what you captured and a `Notebook/` of what you or the agent wrote from it. Inspect it, back it up, sync it, or delete it with normal file tools.
-
-## Under the hood
-
-<details>
-<summary><b>Feed generation</b></summary>
-
-The For You feed has two inputs:
-
-- RSS feeds, enabled by default and editable in **Settings → Feed**.
-- Optional web search, enabled only when you add a [Brave Search API key](https://brave.com/search/api/).
-
-Radar topics from Settings tune both feed ranking and web-search queries, so the briefing stays connected to what you already care about.
-
-```bash
-cp .env.example .env.local   # then paste your key into BRAVE_SEARCH_API_KEY
-```
-
-`.env.local` is git-ignored. Without a key, the feed still runs on RSS and says so clearly.
-
-</details>
-
-<details>
-<summary><b>Agent runtime</b></summary>
-
-Asterism calls a local agent CLI via subprocess — Claude Code (`claude`) or OpenAI Codex (`codex`). Pick your provider in Agent Mode setup or Settings.
-
-- Core analysis runs through your authenticated local agent session, so no separate model API key is required.
-- Agent Mode is required: if no provider is connected, you get a setup gate instead of a degraded app.
-- Prompt/response debug logs are **off by default**. `SECONDBRAIN_AGENT_DEBUG_LOGS=1` enables them for local debugging only — they can contain source text.
-
-Provider-specific spawn details stay in the provider layer; the rest of the app calls one shared agent interface.
-
-</details>
-
-<details>
-<summary><b>Concept graph</b></summary>
-
-Every highlight you save is run through a concept-extraction pipeline that builds the knowledge graph at `/graph`: extract concepts, embed them, find nearest neighbors, and judge duplicates.
-
-That embedding step needs an OpenAI API key — set `embeddings_api_key` in `config.json`. This is **separate from and always required regardless of** your chat/completion provider choice above: Anthropic has no embeddings endpoint, and CLI providers (`claude`/`codex`) have no embedding capability at all, so the concept graph always calls OpenAI directly for embeddings even if your agent provider is something else.
-
-```json
-{
-  "agentProvider": "claude",
-  "embeddings_api_key": "sk-..."
-}
-```
-
-Without it, saving a highlight still succeeds, but the source's concept extraction degrades to an `extraction_error` on that highlight rather than blocking the save.
-
-</details>
-
-<details>
-<summary><b>Development</b></summary>
-
-```bash
-npm test
-npm run lint
-npm run build
-```
-
-Pipeline tracing: `SECONDBRAIN_DEBUG=1 npm run dev`.
-
-Contributor guide: [CONTRIBUTING.md](CONTRIBUTING.md). Agent-facing project context lives in [AGENTS.md](AGENTS.md) (`CLAUDE.md` is a symlink so Claude Code and Codex share one context).
-
-</details>
-
-## License
-
-[MIT](LICENSE) — Asterism began as a fork of [SecondBrain](https://github.com/ryannli/secondbrain); the original license and attribution are preserved.
+Inspect your data folder, back it up, sync it, or delete it with normal file tools.
