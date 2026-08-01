@@ -3,7 +3,7 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.concept_graph.pipeline import process_highlight, promote_concept
+from app.concept_graph.pipeline import process_highlight, promote_concept, _RELATIONSHIP_TO_EDGE_TYPE
 from app.graph_store.store import graph_db_path, init_db, list_concepts, list_edges, list_review_queue
 from app.providers.base import ProviderConfigError
 from app.schemas.analysis import Concept
@@ -36,7 +36,7 @@ def test_process_highlight_creates_new_concept_when_no_neighbors_exist(tmp_path:
     assert result.queued == []
 
 
-def test_process_highlight_falls_back_to_related_edge_type_for_unknown_relationship(tmp_path: Path):
+def test_process_highlight_maps_related_to_relationship_to_related_edge_type(tmp_path: Path):
     # Task 5 (2026-08-01): The parser now rejects invalid relationship values
     # before they reach the pipeline (see _validate_dedup_enums in prompts.py).
     # This test was originally verifying that the pipeline's fallback would
@@ -65,6 +65,18 @@ def test_process_highlight_falls_back_to_related_edge_type_for_unknown_relations
     assert result.extraction_error is None
     assert len(result.edges) == 1
     assert result.edges[0].type == "related"
+
+
+def test_relationship_to_edge_type_falls_back_to_related_for_unknown_key():
+    # The defense-in-depth fallback in _RELATIONSHIP_TO_EDGE_TYPE.get(..., "related")
+    # ensures that any unmapped relationship value (which should never occur due to
+    # _validate_dedup_enums in prompts.py) gracefully converts to "related".
+    assert _RELATIONSHIP_TO_EDGE_TYPE.get("some_unmapped_key", "related") == "related"
+    assert _RELATIONSHIP_TO_EDGE_TYPE.get("unknown_relationship", "related") == "related"
+    # Also verify that mapped keys still work as expected.
+    assert _RELATIONSHIP_TO_EDGE_TYPE.get("related_to", "related") == "related"
+    assert _RELATIONSHIP_TO_EDGE_TYPE.get("extends", "related") == "extends"
+    assert _RELATIONSHIP_TO_EDGE_TYPE.get("contradicts", "related") == "contradicts"
 
 
 def test_process_highlight_creates_edge_on_high_confidence_related_distinct(tmp_path: Path):
