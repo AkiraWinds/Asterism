@@ -205,3 +205,117 @@ def test_run_compile_contradiction_flag_persists_across_unchanged_reruns(tmp_pat
         (l for l in index_after_second.splitlines() if "Unexplained contradiction" in l), None,
     )
     assert second_line == first_line
+
+
+def _split_response(overview: str, aspects: list[dict]) -> str:
+    import json
+    return json.dumps({"synthesis": overview, "aspects": aspects})
+
+
+def test_run_compile_writes_overview_and_aspect_pages_when_split_proposed(tmp_path: Path):
+    _seed_qualifying_concept(tmp_path)
+    provider = StubProvider(_split_response(
+        "RAG overview.",
+        [
+            {"title": "Retrieval Strategies", "content": "Strategy prose."},
+            {"title": "Evaluation", "content": "Evaluation prose."},
+        ],
+    ))
+
+    result = run_compile(tmp_path, provider)
+
+    assert result["pages_new"] == 1  # the split still counts as one concept event
+    overview_text = (tmp_path / "wiki" / "rag.md").read_text()
+    assert "RAG overview." in overview_text
+    assert 'aspects: ["rag-retrieval-strategies", "rag-evaluation"]' in overview_text
+    strategies_text = (tmp_path / "wiki" / "rag-retrieval-strategies.md").read_text()
+    assert "Strategy prose." in strategies_text
+    assert 'aspect_of: "rag"' in strategies_text
+    evaluation_text = (tmp_path / "wiki" / "rag-evaluation.md").read_text()
+    assert "Evaluation prose." in evaluation_text
+    index_text = (tmp_path / "wiki" / "index.md").read_text()
+    assert "  - [Retrieval Strategies](rag-retrieval-strategies.md)" in index_text
+    assert "  - [Evaluation](rag-evaluation.md)" in index_text
+    log_text = (tmp_path / "wiki" / "log.md").read_text()
+    assert "split into 3 pages: overview + 2 aspects" in log_text
+
+
+def test_run_compile_unchanged_split_concept_stays_a_noop(tmp_path: Path):
+    _seed_qualifying_concept(tmp_path)
+    provider = StubProvider(_split_response(
+        "RAG overview.", [{"title": "Evaluation", "content": "Evaluation prose."}],
+    ))
+    run_compile(tmp_path, provider)
+    calls_after_first_run = provider.calls
+
+    result = run_compile(tmp_path, provider)
+
+    assert result == {"pages_updated": 0, "pages_new": 0, "orphans_flagged": 1, "errors": []}
+    assert provider.calls == calls_after_first_run  # no LLM call, provenance hash unchanged
+    # The aspect page must still be listed in the (regenerated-from-scratch) index.md.
+    index_text = (tmp_path / "wiki" / "index.md").read_text()
+    assert "  - [Evaluation](rag-evaluation.md)" in index_text
+    assert (tmp_path / "wiki" / "rag-evaluation.md").exists()
+
+
+def test_run_compile_deletes_stale_aspect_files_when_split_changes(tmp_path: Path):
+    db_path = _seed_qualifying_concept(tmp_path)
+    provider = StubProvider(_split_response(
+        "RAG overview v1.",
+        [
+            {"title": "Retrieval Strategies", "content": "Strategy prose."},
+            {"title": "Evaluation", "content": "Evaluation prose."},
+        ],
+    ))
+    run_compile(tmp_path, provider)
+    assert (tmp_path / "wiki" / "rag-retrieval-strategies.md").exists()
+    assert (tmp_path / "wiki" / "rag-evaluation.md").exists()
+
+    link_concept_highlight(db_path, "c_1", "s_3", "h_3")  # provenance changes -> regenerate
+    provider.response = _split_response(
+        "RAG overview v2.", [{"title": "History", "content": "History prose."}],
+    )
+
+    run_compile(tmp_path, provider)
+
+    assert not (tmp_path / "wiki" / "rag-retrieval-strategies.md").exists()
+    assert not (tmp_path / "wiki" / "rag-evaluation.md").exists()
+    assert (tmp_path / "wiki" / "rag-history.md").exists()
+    index_text = (tmp_path / "wiki" / "index.md").read_text()
+    assert "Retrieval Strategies" not in index_text
+    assert "  - [History](rag-history.md)" in index_text
+
+
+def test_run_compile_deletes_aspect_files_when_concept_becomes_unsplit(tmp_path: Path):
+    db_path = _seed_qualifying_concept(tmp_path)
+    provider = StubProvider(_split_response(
+        "RAG overview v1.", [{"title": "Evaluation", "content": "Evaluation prose."}],
+    ))
+    run_compile(tmp_path, provider)
+    assert (tmp_path / "wiki" / "rag-evaluation.md").exists()
+
+    link_concept_highlight(db_path, "c_1", "s_3", "h_3")  # provenance changes -> regenerate
+    provider.response = '{"synthesis": "RAG overview v2, no longer split.", "aspects": null}'
+
+    run_compile(tmp_path, provider)
+
+    assert not (tmp_path / "wiki" / "rag-evaluation.md").exists()
+    overview_text = (tmp_path / "wiki" / "rag.md").read_text()
+    assert "aspects" not in overview_text.split("---")[1]  # frontmatter block only
+
+
+def test_run_compile_falls_back_to_single_page_on_malformed_aspect_entry(tmp_path: Path):
+    import json
+    _seed_qualifying_concept(tmp_path)
+    raw = json.dumps({"synthesis": "RAG overview.", "aspects": [{"title": "Missing content"}]})
+    provider = StubProvider(raw)
+
+    result = run_compile(tmp_path, provider)
+
+    assert result["errors"] == []
+    assert result["pages_new"] == 1
+    overview_text = (tmp_path / "wiki" / "rag.md").read_text()
+    assert "RAG overview." in overview_text
+    assert "aspects" not in overview_text.split("---")[1]
+    aspect_files = [p for p in (tmp_path / "wiki").glob("rag-*.md")]
+    assert aspect_files == []
