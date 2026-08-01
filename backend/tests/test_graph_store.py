@@ -7,22 +7,27 @@ from app.graph_store.store import (
     delete_concept_highlights_for_highlight,
     delete_concept_sources_for_source,
     delete_review_queue_entry,
+    delete_watchlist_entry,
     get_concept,
     get_review_queue_entry,
+    get_watchlist_entry,
     graph_db_path,
     init_db,
     insert_concept,
     insert_edge,
     insert_review_queue_entry,
+    insert_watchlist_entry,
     link_concept_highlight,
     link_concept_source,
     list_concepts,
     list_edges,
     list_review_queue,
+    list_watchlist_entries,
     nearest_neighbors,
     repoint_concept_highlights,
     repoint_edges,
     set_concept_golden,
+    update_watchlist_entry,
 )
 
 
@@ -249,3 +254,51 @@ def test_delete_concept_sources_for_source_clears_only_that_sources_links(tmp_pa
         conn.row_factory = sqlite3.Row
         remaining = conn.execute("SELECT source_id FROM concept_sources").fetchall()
     assert [r["source_id"] for r in remaining] == ["source_b"]
+
+
+def test_insert_watchlist_entry_defaults_to_pending(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_watchlist_entry(db_path, "w_1", "Agentic AI", "2026-08-01T00:00:00Z")
+    entry = get_watchlist_entry(db_path, "w_1")
+    assert entry["term"] == "Agentic AI"
+    assert entry["status"] == "pending"
+    assert entry["draft_definition"] is None
+    assert entry["draft_matched_concept_id"] is None
+    assert entry["resolved_concept_id"] is None
+
+
+def test_list_watchlist_entries_returns_all(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_watchlist_entry(db_path, "w_1", "Agentic AI", "2026-08-01T00:00:00Z")
+    insert_watchlist_entry(db_path, "w_2", "Multi-agent systems", "2026-08-01T00:00:01Z")
+    assert {e["id"] for e in list_watchlist_entries(db_path)} == {"w_1", "w_2"}
+
+
+def test_update_watchlist_entry_sets_fields_and_bumps_updated_at(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_watchlist_entry(db_path, "w_1", "Agentic AI", "2026-08-01T00:00:00Z")
+
+    update_watchlist_entry(db_path, "w_1", status="resolved", resolved_concept_id="c_1", updated_at="2026-08-01T01:00:00Z")
+
+    entry = get_watchlist_entry(db_path, "w_1")
+    assert entry["status"] == "resolved"
+    assert entry["resolved_concept_id"] == "c_1"
+    assert entry["updated_at"] == "2026-08-01T01:00:00Z"
+
+
+def test_delete_watchlist_entry_removes_row(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_watchlist_entry(db_path, "w_1", "Agentic AI", "2026-08-01T00:00:00Z")
+    delete_watchlist_entry(db_path, "w_1")
+    assert get_watchlist_entry(db_path, "w_1") is None
+
+
+def test_delete_watchlist_entry_does_not_delete_resolved_concept(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "Agentic AI", "def", [0.1], False, "2026-08-01T00:00:00Z", golden=True)
+    insert_watchlist_entry(db_path, "w_1", "Agentic AI", "2026-08-01T00:00:00Z")
+    update_watchlist_entry(db_path, "w_1", status="resolved", resolved_concept_id="c_1", updated_at="2026-08-01T00:00:01Z")
+
+    delete_watchlist_entry(db_path, "w_1")
+
+    assert get_concept(db_path, "c_1") is not None

@@ -52,6 +52,17 @@ CREATE TABLE IF NOT EXISTS review_queue (
   proposed_edge_type TEXT NOT NULL DEFAULT 'related',
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS watchlist (
+  id TEXT PRIMARY KEY,
+  term TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  draft_definition TEXT NULL,
+  draft_matched_concept_id TEXT NULL,
+  resolved_concept_id TEXT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 """
 
 
@@ -296,3 +307,76 @@ def nearest_neighbors(db_path: Path, embedding: list[float], top_k: int = 3) -> 
     ]
     scored.sort(key=lambda pair: pair[1], reverse=True)
     return scored[:top_k]
+
+
+def insert_watchlist_entry(db_path: Path, entry_id: str, term: str, created_at: str) -> None:
+    """Add a new watchlist entry, always starting in 'pending' status with all
+    draft and resolved fields unset (None). The watchlist tracks candidate
+    concepts the user wants to monitor; status progresses pending → resolved
+    as the resolution chain matches or creates a concept."""
+    with _connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO watchlist (id, term, status, created_at, updated_at) VALUES (?, ?, 'pending', ?, ?)",
+            (entry_id, term, created_at, created_at),
+        )
+        conn.commit()
+
+
+def _row_to_watchlist_dict(row: sqlite3.Row) -> dict:
+    """Convert a sqlite3.Row from the watchlist table into a plain dict,
+    handling all NULL fields (draft_* and resolved_concept_id are nullable)."""
+    return {
+        "id": row["id"],
+        "term": row["term"],
+        "status": row["status"],
+        "draft_definition": row["draft_definition"],
+        "draft_matched_concept_id": row["draft_matched_concept_id"],
+        "resolved_concept_id": row["resolved_concept_id"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def get_watchlist_entry(db_path: Path, entry_id: str) -> dict | None:
+    """Fetch a single watchlist entry by ID, returning None if not found."""
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM watchlist WHERE id = ?", (entry_id,)).fetchone()
+        return _row_to_watchlist_dict(row) if row else None
+
+
+def list_watchlist_entries(db_path: Path) -> list[dict]:
+    """Return all watchlist entries, most recently updated first."""
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM watchlist").fetchall()
+        return [_row_to_watchlist_dict(r) for r in rows]
+
+
+_WATCHLIST_UPDATABLE_FIELDS = {
+    "term", "status", "draft_definition", "draft_matched_concept_id", "resolved_concept_id", "updated_at",
+}
+
+
+def update_watchlist_entry(db_path: Path, entry_id: str, **fields) -> None:
+    """Partial update — pass only the fields that changed. `updated_at` may be
+    passed explicitly (e.g. from the caller's request timestamp); if omitted,
+    the existing value is left as-is rather than silently guessed here."""
+    unknown = set(fields) - _WATCHLIST_UPDATABLE_FIELDS
+    if unknown:
+        raise ValueError(f"Unknown watchlist field(s): {sorted(unknown)}")
+    if not fields:
+        return
+    set_clause = ", ".join(f"{key} = ?" for key in fields)
+    with _connect(db_path) as conn:
+        conn.execute(f"UPDATE watchlist SET {set_clause} WHERE id = ?", (*fields.values(), entry_id))
+        conn.commit()
+
+
+def delete_watchlist_entry(db_path: Path, entry_id: str) -> None:
+    """Removes only the tracking row — never touches the concepts table, even
+    when resolved_concept_id points at a concept (see design doc: the concept
+    stays in the graph; only the watchlist's tracking of it goes away)."""
+    with _connect(db_path) as conn:
+        conn.execute("DELETE FROM watchlist WHERE id = ?", (entry_id,))
+        conn.commit()
