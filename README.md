@@ -119,8 +119,6 @@ Open [http://localhost:3000](http://localhost:3000).
 - **`frontend/`** — Next.js is a thin client over the backend's REST/SSE API. No business logic lives here.
 - **`docs/`** — mainly `docs/assets/` for this README. Onboarding notes, architecture specs, phase plans, and session summaries are local-only working notes, not tracked in git.
 
-An earlier Next.js-does-everything monolith (what used to live at the repo root) is now frozen and kept locally only as reference material for porting a few features it has that the rewrite doesn't yet (Dashboard, Feed, Notebook, folder tree, the browser extension) — it's no longer tracked in this repo.
-
 ## Your data stays yours
 
 - **You choose where it lives** — `$ASTERISM_DATA_ROOT`, any folder you control.

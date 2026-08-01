@@ -26,7 +26,6 @@ This is the canonical agent instruction file for this repository.
 
 - **`backend/`** — Python/FastAPI owns everything: local-first file storage, AI provider abstraction, content ingestion/extraction, content analysis, the knowledge graph, and chat. Analysis and graph pipelines are built as LangGraph graphs (`app/analysis/graph.py`, `app/graph.py`) so individual fields checkpoint (`SqliteSaver`) and retry independently instead of redoing a whole pipeline run.
 - **`frontend/`** — Next.js is a thin REST/SSE client. No business logic lives here; it talks to the backend at `NEXT_PUBLIC_BACKEND_URL` (default `http://localhost:8000`).
-- **Legacy**: an earlier Next.js-does-everything monolith (formerly at the repo root: `src/`, `src-tauri/`, `extension/`) is frozen and gitignored — kept on disk only as reference for porting features the rewrite hasn't reached yet (Dashboard, Feed, Notebook, the browser extension).
 
 ### Provider abstraction (`backend/app/providers/`)
 
