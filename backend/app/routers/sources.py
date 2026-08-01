@@ -32,16 +32,20 @@ from app.providers.base import (
 from app.providers.factory import build_provider
 from app.repositories.config_repository import ConfigError, load_config, load_embeddings_api_key
 from app.repositories.source_repository import (
-    append_chat_turn,
+    append_conversation_turn,
     append_highlight,
+    create_conversation,
     create_source,
     create_source_from_url,
+    delete_conversation,
+    delete_source,
     find_duplicate_highlight,
     get_source,
+    list_conversations,
     list_sources,
     mark_feedback_promoted,
     read_analysis,
-    read_chat,
+    read_conversation,
     read_feedback,
     read_highlights,
     read_source_url,
@@ -51,7 +55,7 @@ from app.repositories.source_repository import (
 )
 from app.schemas.agent import AgentErrorResponse
 from app.schemas.analysis import AnalysisResult, Concept
-from app.schemas.chat import ChatHistory, ChatRequest, ChatTurn
+from app.schemas.chat import ChatRequest, ChatTurn, Conversation, ConversationSummary, DeleteConversationResponse
 from app.schemas.feedback import FeedbackEntry, FeedbackHistory, FeedbackRequest
 from app.schemas.graph import HighlightProcessResult
 from app.schemas.highlight import Highlight, HighlightCreateRequest, HighlightHistory, HighlightUpdateRequest
@@ -159,6 +163,13 @@ def get_source_endpoint(source_id: str) -> SourceDetailResponse:
     )
 
 
+@router.delete("/{source_id}", status_code=204)
+def delete_source_endpoint(source_id: str):
+    data_root = get_data_root()
+    if not delete_source(data_root, source_id):
+        raise HTTPException(status_code=404, detail="Source not found")
+
+
 @router.post("/{source_id}/analyze", response_model=AnalysisResult)
 def analyze_source_endpoint(source_id: str):
     data_root = get_data_root()
@@ -238,20 +249,91 @@ def analyze_source_endpoint(source_id: str):
     return result
 
 
-@router.get("/{source_id}/chat", response_model=ChatHistory)
-def get_chat_endpoint(source_id: str) -> ChatHistory:
+def _resolve_conversation_id(data_root, source_id: str, conversation_id: str | None) -> str:
+    """A source always has at least one conversation. When the caller doesn't
+    pin a specific one (conversation_id is None), fall back to the first —
+    this keeps the pre-multi-thread GET/POST /chat behavior working as
+    "the" chat for callers that don't know about threads yet."""
+    if conversation_id is not None:
+        return conversation_id
+    return list_conversations(data_root, source_id)[0].id
+
+
+@router.get("/{source_id}/chats", response_model=list[ConversationSummary])
+def list_conversations_endpoint(source_id: str) -> list[ConversationSummary]:
     data_root = get_data_root()
     if get_source(data_root, source_id) is None:
         raise HTTPException(status_code=404, detail="Source not found")
-    return read_chat(data_root, source_id)
+    conversations = list_conversations(data_root, source_id)
+    return [
+        ConversationSummary(
+            id=c.id, title=c.title, created_at=c.created_at, updated_at=c.updated_at, turn_count=len(c.turns)
+        )
+        for c in conversations
+    ]
+
+
+@router.post("/{source_id}/chats", response_model=ConversationSummary)
+def create_conversation_endpoint(source_id: str) -> ConversationSummary:
+    data_root = get_data_root()
+    if get_source(data_root, source_id) is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    conversation = create_conversation(data_root, source_id)
+    return ConversationSummary(
+        id=conversation.id,
+        title=conversation.title,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+        turn_count=0,
+    )
+
+
+@router.delete("/{source_id}/chats/{conversation_id}", response_model=DeleteConversationResponse)
+def delete_conversation_endpoint(source_id: str, conversation_id: str) -> DeleteConversationResponse:
+    data_root = get_data_root()
+    if get_source(data_root, source_id) is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    was_last_conversation = len(list_conversations(data_root, source_id)) == 1
+    if not delete_conversation(data_root, source_id, conversation_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if not was_last_conversation:
+        return DeleteConversationResponse(replacement=None)
+
+    # A source must always have at least one thread — list_conversations
+    # auto-creates a replacement the moment zero remain. Surface it here so
+    # the frontend can switch straight to it instead of a second round trip.
+    c = list_conversations(data_root, source_id)[0]
+    return DeleteConversationResponse(
+        replacement=ConversationSummary(
+            id=c.id, title=c.title, created_at=c.created_at, updated_at=c.updated_at, turn_count=0
+        )
+    )
+
+
+@router.get("/{source_id}/chat", response_model=Conversation)
+def get_chat_endpoint(source_id: str, conversation_id: str | None = None) -> Conversation:
+    data_root = get_data_root()
+    if get_source(data_root, source_id) is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    resolved_id = _resolve_conversation_id(data_root, source_id, conversation_id)
+    conversation = read_conversation(data_root, source_id, resolved_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation
 
 
 @router.post("/{source_id}/chat")
-def post_chat_endpoint(source_id: str, payload: ChatRequest):
+def post_chat_endpoint(source_id: str, payload: ChatRequest, conversation_id: str | None = None):
     data_root = get_data_root()
     record = get_source(data_root, source_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Source not found")
+
+    resolved_id = _resolve_conversation_id(data_root, source_id, conversation_id)
+    if read_conversation(data_root, source_id, resolved_id) is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Only a missing config.json can be checked before the SSE response starts.
     # ProviderMissingError/ProviderConfigError only actually raise once
@@ -266,7 +348,7 @@ def post_chat_endpoint(source_id: str, payload: ChatRequest):
 
     provider = build_provider(config, data_root)
     analysis = read_analysis(data_root, source_id)
-    history = read_chat(data_root, source_id)
+    history = read_conversation(data_root, source_id, resolved_id)
     now = _now_iso()
 
     prompt = build_chat_prompt(
@@ -277,9 +359,10 @@ def post_chat_endpoint(source_id: str, payload: ChatRequest):
         message=payload.message,
     )
 
-    append_chat_turn(
+    append_conversation_turn(
         data_root,
         source_id,
+        resolved_id,
         ChatTurn(
             role="user",
             content=payload.message,
@@ -298,17 +381,19 @@ def post_chat_endpoint(source_id: str, payload: ChatRequest):
             logger.warning(
                 "Chat stream provider error source_id=%s type=%s", source_id, type(exc).__name__
             )
-            append_chat_turn(
+            append_conversation_turn(
                 data_root,
                 source_id,
+                resolved_id,
                 ChatTurn(role="assistant", content=collected, truncated=True, created_at=_now_iso()),
             )
             yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
             return
 
-        append_chat_turn(
+        append_conversation_turn(
             data_root,
             source_id,
+            resolved_id,
             ChatTurn(role="assistant", content=collected, created_at=_now_iso()),
         )
         yield "event: done\ndata: {}\n\n"

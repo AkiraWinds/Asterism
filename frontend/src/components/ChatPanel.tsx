@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChatTurn, getChatHistory, streamChatMessage } from "@/lib/api";
+import {
+  ChatTurn,
+  ConversationSummary,
+  createConversation,
+  deleteConversation,
+  getChatHistory,
+  listConversations,
+  streamChatMessage,
+} from "@/lib/api";
 
 export function ChatPanel({
   sourceId,
@@ -12,6 +20,8 @@ export function ChatPanel({
   attachedHighlight: string | null;
   onClearAttachedHighlight: () => void;
 }) {
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -20,18 +30,44 @@ export function ChatPanel({
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    getChatHistory(sourceId)
+    listConversations(sourceId)
+      .then((list) => {
+        setConversations(list);
+        setActiveId((prev) => prev ?? list[0]?.id ?? null);
+      })
+      .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load chats"));
+  }, [sourceId]);
+
+  useEffect(() => {
+    if (!activeId) return;
+    getChatHistory(sourceId, activeId)
       .then(setTurns)
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load chat"));
-  }, [sourceId]);
+  }, [sourceId, activeId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns, streamingText]);
 
+  async function handleNewChat() {
+    const created = await createConversation(sourceId);
+    setConversations((prev) => [...prev, created]);
+    setActiveId(created.id);
+  }
+
+  async function handleDeleteChat(id: string) {
+    if (!window.confirm("Delete this chat? This can't be undone.")) return;
+    const replacement = await deleteConversation(sourceId, id);
+    const list = await listConversations(sourceId);
+    setConversations(list);
+    if (activeId === id) {
+      setActiveId(replacement?.id ?? list[0]?.id ?? null);
+    }
+  }
+
   async function handleSend() {
     const message = input.trim();
-    if (!message || sending) return;
+    if (!message || sending || !activeId) return;
 
     setInput("");
     setSending(true);
@@ -47,7 +83,7 @@ export function ChatPanel({
 
     try {
       let accumulated = "";
-      const { truncated } = await streamChatMessage(sourceId, message, attachedHighlight, (chunk) => {
+      const { truncated } = await streamChatMessage(sourceId, activeId, message, attachedHighlight, (chunk) => {
         accumulated += chunk;
         setStreamingText(accumulated);
       });
@@ -83,8 +119,38 @@ export function ChatPanel({
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="border-b border-neutral-200 px-4 py-3 text-sm font-medium text-neutral-900 dark:border-neutral-800 dark:text-neutral-100">
-        Chat
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-neutral-200 px-2 py-2 dark:border-neutral-800">
+        {conversations.map((c) => (
+          <div
+            key={c.id}
+            className={`group flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ${
+              c.id === activeId
+                ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                : "text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            }`}
+          >
+            <button type="button" onClick={() => setActiveId(c.id)}>
+              {c.title}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDeleteChat(c.id)}
+              aria-label={`Delete ${c.title}`}
+              className="opacity-0 group-hover:opacity-100"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={handleNewChat}
+          aria-label="New chat"
+          title="New chat"
+          className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+        >
+          +
+        </button>
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">

@@ -12,8 +12,11 @@ from app.repositories.source_repository import (
     list_analysis_summaries,
     read_analysis,
     write_analysis,
-    append_chat_turn,
-    read_chat,
+    append_conversation_turn,
+    create_conversation,
+    delete_conversation,
+    list_conversations,
+    read_conversation,
     append_highlight,
     read_highlights,
     read_source_url,
@@ -24,7 +27,7 @@ from app.repositories.source_repository import (
     mark_feedback_promoted,
 )
 from app.schemas.analysis import AnalysisResult, Claim, Digest
-from app.schemas.chat import ChatHistory, ChatTurn
+from app.schemas.chat import ChatTurn
 from app.schemas.highlight import Highlight
 
 
@@ -208,27 +211,57 @@ def test_list_analysis_claims_returns_only_requested_ids_with_claims(tmp_path: P
     assert results[0]["claims"][0].text == "X is true"
 
 
-def test_read_chat_returns_empty_history_when_no_file(tmp_path: Path):
+def test_list_conversations_auto_creates_one_for_a_fresh_source(tmp_path: Path):
     source_id = create_source(tmp_path, title="T", content="c").id
 
-    history = read_chat(tmp_path, source_id)
+    conversations = list_conversations(tmp_path, source_id)
 
-    assert history == ChatHistory(turns=[])
+    assert len(conversations) == 1
+    assert conversations[0].title == "Chat 1"
+    assert conversations[0].turns == []
 
 
-def test_append_chat_turn_creates_and_appends(tmp_path: Path):
+def test_append_conversation_turn_creates_and_appends(tmp_path: Path):
+    source_id = create_source(tmp_path, title="T", content="c").id
+    conversation_id = list_conversations(tmp_path, source_id)[0].id
+
+    append_conversation_turn(
+        tmp_path, source_id, conversation_id,
+        ChatTurn(role="user", content="hi", created_at="2026-07-29T12:00:00Z"),
+    )
+    append_conversation_turn(
+        tmp_path, source_id, conversation_id,
+        ChatTurn(role="assistant", content="hello back", created_at="2026-07-29T12:00:01Z"),
+    )
+
+    conversation = read_conversation(tmp_path, source_id, conversation_id)
+    assert [t.role for t in conversation.turns] == ["user", "assistant"]
+    assert conversation.turns[1].content == "hello back"
+
+
+def test_create_conversation_numbers_titles_sequentially(tmp_path: Path):
+    source_id = create_source(tmp_path, title="T", content="c").id
+    list_conversations(tmp_path, source_id)  # establishes "Chat 1"
+
+    second = create_conversation(tmp_path, source_id)
+
+    assert second.title == "Chat 2"
+
+
+def test_delete_conversation_removes_the_file(tmp_path: Path):
+    source_id = create_source(tmp_path, title="T", content="c").id
+    first = list_conversations(tmp_path, source_id)[0]
+    second = create_conversation(tmp_path, source_id)
+
+    assert delete_conversation(tmp_path, source_id, first.id) is True
+    remaining = list_conversations(tmp_path, source_id)
+    assert [c.id for c in remaining] == [second.id]
+
+
+def test_delete_conversation_returns_false_when_missing(tmp_path: Path):
     source_id = create_source(tmp_path, title="T", content="c").id
 
-    append_chat_turn(
-        tmp_path, source_id, ChatTurn(role="user", content="hi", created_at="2026-07-29T12:00:00Z")
-    )
-    append_chat_turn(
-        tmp_path, source_id, ChatTurn(role="assistant", content="hello back", created_at="2026-07-29T12:00:01Z")
-    )
-
-    history = read_chat(tmp_path, source_id)
-    assert [t.role for t in history.turns] == ["user", "assistant"]
-    assert history.turns[1].content == "hello back"
+    assert delete_conversation(tmp_path, source_id, "does-not-exist") is False
 
 
 def test_read_highlights_returns_empty_history_when_no_file(tmp_path: Path):
