@@ -265,6 +265,12 @@ def delete_review_queue_entry(db_path: Path, entry_id: str) -> None:
         conn.commit()
 
 
+# Small tiebreaker bonus for golden concepts in ranking. Helps near-duplicate detection
+# prefer user-approved matches without letting an unrelated golden concept outrank a
+# genuinely close non-golden match. See design doc's Resolution chain for rationale.
+_GOLDEN_BONUS = 0.05
+
+
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b))
     norm_a = math.sqrt(sum(x * x for x in a))
@@ -277,8 +283,16 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 def nearest_neighbors(db_path: Path, embedding: list[float], top_k: int = 3) -> list[tuple[dict, float]]:
     """Brute-force cosine similarity over every stored concept. Fine at
     personal-library scale; revisit with a real vector index only if this
-    becomes a measured bottleneck (see design doc's Out of Scope)."""
+    becomes a measured bottleneck (see design doc's Out of Scope). Golden
+    concepts (user-approved via the watchlist) get a small fixed bonus so
+    they win ties against near-duplicate non-golden matches, without letting
+    a barely-related golden concept outrank a genuinely close match."""
     candidates = list_concepts(db_path)
-    scored = [(c, _cosine_similarity(embedding, c["embedding"])) for c in candidates]
+    # Add small bonus to golden concepts to break ties in deduplication without
+    # letting unrelated golden concepts outrank close non-golden matches.
+    scored = [
+        (c, _cosine_similarity(embedding, c["embedding"]) + (_GOLDEN_BONUS if c["golden"] else 0.0))
+        for c in candidates
+    ]
     scored.sort(key=lambda pair: pair[1], reverse=True)
     return scored[:top_k]

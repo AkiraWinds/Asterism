@@ -203,6 +203,28 @@ def test_nearest_neighbors_ranks_by_cosine_similarity(tmp_path: Path):
     assert results[0][1] > results[1][1]
 
 
+def test_nearest_neighbors_ranks_golden_above_similar_non_golden(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    # Two concepts with near-identical embeddings; only c_2 is golden.
+    insert_concept(db_path, "c_1", "A", "def1", [1.0, 0.0], False, "2026-08-01T00:00:00Z")
+    insert_concept(db_path, "c_2", "B", "def2", [0.99, 0.01], False, "2026-08-01T00:00:01Z", golden=True)
+
+    results = nearest_neighbors(db_path, [1.0, 0.0], top_k=2)
+
+    assert results[0][0]["id"] == "c_2"
+
+
+def test_nearest_neighbors_true_similarity_gap_beats_golden_bonus(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    # c_1 is a near-perfect match and non-golden; c_2 is golden but nearly orthogonal.
+    insert_concept(db_path, "c_1", "A", "def1", [1.0, 0.0], False, "2026-08-01T00:00:00Z")
+    insert_concept(db_path, "c_2", "B", "def2", [0.0, 1.0], False, "2026-08-01T00:00:01Z", golden=True)
+
+    results = nearest_neighbors(db_path, [1.0, 0.0], top_k=2)
+
+    assert results[0][0]["id"] == "c_1"
+
+
 def test_link_concept_source_creates_provenance_row(tmp_path: Path):
     db_path = _new_db(tmp_path)
     insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
