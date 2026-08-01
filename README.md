@@ -48,7 +48,7 @@ Asterism is a local-first personal knowledge base with an agent inside — but t
         Wiki (browsable markdown pages)
 ```
 
-Everything in [What ships today](#what-ships-today) is what actually exists right now, built on the current backend/frontend stack. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full phase-by-phase plan of where this is headed (copilot retrieval across the whole library, a Dashboard/Feed, the browser extension).
+Everything in [What ships today](#what-ships-today) is what actually exists right now, built on the current backend/frontend stack. Ahead: copilot retrieval across the whole library, a Dashboard/Feed, and a rewritten browser extension.
 
 ## What ships today
 
@@ -117,7 +117,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 - **`backend/`** — Python/FastAPI owns everything: local-first file storage, AI provider abstraction (CLI-subprocess or API key), content ingestion/analysis, the knowledge graph, and chat. Analysis pipelines are built as LangGraph graphs so individual fields checkpoint and retry independently.
 - **`frontend/`** — Next.js is a thin client over the backend's REST/SSE API. No business logic lives here.
-- **`docs/`** — architecture specs, phase plans, and dated session summaries; start at [`docs/INDEX.md`](docs/INDEX.md) or [`docs/ROADMAP.md`](docs/ROADMAP.md).
+- **`docs/`** — user-facing docs live here (`docs/ONBOARDING.md`, `docs/assets/`). Architecture specs, phase plans, and session summaries are local-only working notes, not tracked in git.
 
 An earlier Next.js-does-everything monolith (what used to live at the repo root) is now frozen and kept locally only as reference material for porting a few features it has that the rewrite doesn't yet (Dashboard, Feed, Notebook, folder tree, the browser extension) — it's no longer tracked in this repo.
 
