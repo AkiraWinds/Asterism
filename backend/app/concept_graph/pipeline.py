@@ -34,7 +34,6 @@ from app.graph_store.store import (
 )
 from app.providers.base import Provider, ProviderConfigError, ProviderError, ProviderMissingError
 from app.providers.embeddings import embed_text
-from app.repositories.config_repository import load_brave_api_key
 from app.schemas.analysis import Concept
 from app.schemas.graph import ConceptNode, Edge, HighlightProcessResult, ReviewQueueEntry
 from app.schemas.highlight import Highlight
