@@ -3,15 +3,58 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.concept_graph.pipeline import process_highlight, promote_concept, _RELATIONSHIP_TO_EDGE_TYPE
+import pytest
+
+from app.concept_graph.pipeline import (
+    _complete_with_retry,
+    process_highlight,
+    promote_concept,
+    _RELATIONSHIP_TO_EDGE_TYPE,
+)
+from app.concept_graph.prompts import parse_extraction_response
 from app.graph_store.store import graph_db_path, init_db, list_concepts, list_edges, list_review_queue
-from app.providers.base import ProviderConfigError
+from app.providers.base import Provider, ProviderConfigError
 from app.schemas.analysis import Concept
 from app.schemas.highlight import Highlight
 
 
 def _make_highlight(quote="the AI reads first", note=None) -> Highlight:
     return Highlight(id="h_1", source_quote=quote, note=note, source_title="Test Source", created_at="2026-07-30T00:00:00Z")
+
+
+class _FlakyThenGoodProvider(Provider):
+    """Returns malformed JSON once, then a valid response — for retry tests."""
+
+    def __init__(self, good_response: str):
+        self._good_response = good_response
+        self._calls = 0
+
+    def complete(self, prompt: str) -> str:
+        self._calls += 1
+        if self._calls == 1:
+            return "not json"
+        return self._good_response
+
+
+class _AlwaysBadProvider(Provider):
+    def complete(self, prompt: str) -> str:
+        return "not json"
+
+
+def test_complete_with_retry_succeeds_on_second_attempt():
+    good = json.dumps([{"term": "RAG", "definition": "def", "self_relevant": False}])
+    provider = _FlakyThenGoodProvider(good)
+
+    result = _complete_with_retry(provider, "prompt", parse_extraction_response)
+
+    assert result[0]["term"] == "RAG"
+
+
+def test_complete_with_retry_raises_after_max_attempts():
+    provider = _AlwaysBadProvider()
+
+    with pytest.raises(ValueError):
+        _complete_with_retry(provider, "prompt", parse_extraction_response)
 
 
 def test_process_highlight_creates_new_concept_when_no_neighbors_exist(tmp_path: Path):
@@ -232,6 +275,9 @@ def test_process_highlight_sets_extraction_error_on_malformed_dedup_response(tmp
     provider = MagicMock()
     provider.complete.side_effect = [
         json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False}]),
+        # Dedup response is malformed on both attempts — _complete_with_retry
+        # retries once (MAX_ATTEMPTS=2) before giving up.
+        "not json",
         "not json",
     ]
 

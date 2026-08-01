@@ -32,7 +32,7 @@ from app.graph_store.store import (
     link_concept_source,
     nearest_neighbors,
 )
-from app.providers.base import Provider, ProviderError
+from app.providers.base import Provider, ProviderConfigError, ProviderError, ProviderMissingError
 from app.providers.embeddings import embed_text
 from app.schemas.analysis import Concept
 from app.schemas.graph import ConceptNode, Edge, HighlightProcessResult, ReviewQueueEntry
@@ -54,6 +54,29 @@ _RELATIONSHIP_TO_EDGE_TYPE = {
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+MAX_ATTEMPTS = 2
+
+
+def _complete_with_retry(
+    llm_provider: Provider, prompt: str, parse_fn: Callable[[str], list[dict]], max_attempts: int = MAX_ATTEMPTS,
+) -> list[dict]:
+    """Call the LLM and parse its response, retrying on a malformed/invalid
+    response before giving up — matches the pattern app/analysis/nodes.py
+    already uses for Phase-4 analysis calls. Config-level failures (bad API
+    key, CLI not on PATH) can't be fixed by retrying, so those propagate
+    immediately instead of burning attempts."""
+    last_error: Exception = ValueError("unknown error")
+    for _ in range(max_attempts):
+        try:
+            raw = llm_provider.complete(prompt)
+            return parse_fn(raw)
+        except (ProviderMissingError, ProviderConfigError):
+            raise
+        except (ValueError, ProviderError) as exc:
+            last_error = exc
+    raise last_error
 
 
 def _select_judgment(judgments: list[dict]) -> dict:
@@ -125,8 +148,9 @@ def _dedupe_and_insert(
                 continue
 
             neighbor_payload = [{"id": c["id"], "term": c["term"], "definition": c["definition"]} for c, _ in neighbors]
-            raw_dedup = llm_provider.complete(build_dedup_prompt(item["term"], item["definition"], note, neighbor_payload))
-            judgments = parse_dedup_response(raw_dedup)
+            judgments = _complete_with_retry(
+                llm_provider, build_dedup_prompt(item["term"], item["definition"], note, neighbor_payload), parse_dedup_response,
+            )
 
             best = _select_judgment(judgments)
             existing = get_concept(db_path, best["existing_concept_id"])
@@ -188,8 +212,9 @@ def process_highlight(
     init_db(db_path)
 
     try:
-        raw_extraction = llm_provider.complete(build_extraction_prompt(highlight.source_quote, highlight.note))
-        extracted = parse_extraction_response(raw_extraction)
+        extracted = _complete_with_retry(
+            llm_provider, build_extraction_prompt(highlight.source_quote, highlight.note), parse_extraction_response,
+        )
     except (ValueError, ProviderError) as exc:
         return HighlightProcessResult(highlight=highlight, extraction_error=str(exc))
 
