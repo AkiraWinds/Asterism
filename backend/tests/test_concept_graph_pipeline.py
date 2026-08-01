@@ -399,6 +399,27 @@ def test_process_highlight_sets_extraction_error_on_unknown_existing_concept_id(
     assert len(list_concepts(db_path)) == 1
 
 
+def test_process_highlight_handles_empty_extraction_as_no_op(tmp_path: Path):
+    # Task 7 (2026-08-01): the rewritten extraction prompt permits the LLM to
+    # abstain with "[]" when nothing in the passage clears the bar. This
+    # confirms that path is a clean no-op through the whole pipeline
+    # (extraction -> _dedupe_and_insert's `for item in items` loop simply not
+    # executing) rather than a crash or spurious extraction_error.
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+
+    provider = MagicMock()
+    provider.complete.return_value = "[]"
+
+    result = process_highlight(tmp_path, "source_a", _make_highlight(), provider, "sk-embed")
+
+    assert result.extraction_error is None
+    assert result.concepts == []
+    assert result.edges == []
+    assert result.queued == []
+    assert list_concepts(db_path) == []
+
+
 from app.concept_graph.pipeline import process_source_concepts
 from app.schemas.analysis import Concept
 

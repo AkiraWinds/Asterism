@@ -23,19 +23,44 @@ def _strip_markdown_fence(raw: str) -> str:
 
 
 def build_extraction_prompt(source_quote: str, note: str | None) -> str:
+    # Task 7 (2026-08-01) rewrite: earlier wording forced 1-3 concepts per
+    # highlight and gave the model no worked examples, which pushed it toward
+    # generic filler ("Software design", "AI systems") on passages that don't
+    # actually contain a specific, definable concept. Few-shot examples (good /
+    # too-generic / abstain) plus explicit permission to return [] let the
+    # model decline instead of inventing something ungrounded — see this
+    # plan's design doc for the quality problem this addresses.
     parts = [
         "You are extracting concept nodes for a personal knowledge graph. "
         "Given a highlighted passage from a source, and an optional user note "
-        "explaining why they highlighted it, extract 1-3 concepts. For each: a "
-        "short name (2-5 words), a definition (1-2 sentences, grounded in the "
-        "passage), and whether it is self-relevant (the note references the "
-        "user's own project/work rather than another source concept).",
+        "explaining why they highlighted it, extract 0-3 concepts — only ones "
+        "that are specific and meaningful, grounded in this exact passage. It is "
+        "correct to return an empty list if nothing in the passage clears that bar; "
+        "do not force a count.",
+        "## Examples\n\n"
+        "Good extraction — passage: \"Asterism keeps the filesystem as the single "
+        "source of truth; the web UI is just a view over it.\"\n"
+        "-> [{\"term\": \"Local-first storage\", \"definition\": \"The filesystem is the "
+        "canonical source of truth; any UI is a projection over it, not the source of "
+        "record.\", \"self_relevant\": false}]\n\n"
+        "Bad extraction (too generic) — same passage, do NOT extract this:\n"
+        "-> [{\"term\": \"Software design\", \"definition\": \"An approach to building "
+        "software.\"}] — this is broad filler, not a specific concept grounded in "
+        "what the passage actually says.\n\n"
+        "Abstain example — passage: \"I really liked this article.\"\n"
+        "-> [] — nothing specific or definable here; return an empty list rather than "
+        "inventing a concept.",
         f"## Highlighted passage\n\n{source_quote}",
     ]
     if note:
         parts.append(f"## User's note\n\n{note}")
     parts.append(
-        "Respond with JSON only: a list of objects with keys term, definition, self_relevant (bool)."
+        "For each concept: a short name (2-5 words), a definition (1-2 sentences) that "
+        "must be grounded in — and reference back to — the specific wording of the "
+        "highlighted passage above, not general knowledge, and whether it is "
+        "self_relevant (the note references the user's own project/work rather than "
+        "another source concept). Respond with JSON only: a list of objects with keys "
+        "term, definition, self_relevant (bool). Return [] if nothing qualifies."
     )
     return "\n\n".join(parts)
 

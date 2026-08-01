@@ -22,6 +22,31 @@ def test_build_extraction_prompt_omits_note_section_when_none():
     assert "User's note" not in prompt
 
 
+def test_build_extraction_prompt_includes_few_shot_examples():
+    prompt = build_extraction_prompt("some quote", None)
+    assert "Example" in prompt or "example" in prompt
+
+
+def test_build_extraction_prompt_includes_negative_example():
+    prompt = build_extraction_prompt("some quote", None)
+    assert "don't extract" in prompt.lower() or "too generic" in prompt.lower()
+
+
+def test_build_extraction_prompt_allows_abstaining():
+    prompt = build_extraction_prompt("some quote", None)
+    assert "empty list" in prompt.lower() or "return []" in prompt.lower()
+
+
+def test_build_extraction_prompt_requires_quote_anchoring():
+    prompt = build_extraction_prompt("some quote", None)
+    assert "quote" in prompt.lower()
+
+
+def test_parse_extraction_response_accepts_empty_list():
+    concepts = parse_extraction_response("[]")
+    assert concepts == []
+
+
 def test_parse_extraction_response_returns_concepts():
     raw = json.dumps([
         {"term": "Local-first storage", "definition": "Filesystem is the source of truth.", "self_relevant": False}
