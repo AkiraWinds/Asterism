@@ -117,7 +117,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 - **`backend/`** — Python/FastAPI owns everything: local-first file storage, AI provider abstraction (CLI-subprocess or API key), content ingestion/analysis, the knowledge graph, and chat. Analysis pipelines are built as LangGraph graphs so individual fields checkpoint and retry independently.
 - **`frontend/`** — Next.js is a thin client over the backend's REST/SSE API. No business logic lives here.
-- **`docs/`** — user-facing docs live here (`docs/ONBOARDING.md`, `docs/assets/`). Architecture specs, phase plans, and session summaries are local-only working notes, not tracked in git.
+- **`docs/`** — mainly `docs/assets/` for this README. Onboarding notes, architecture specs, phase plans, and session summaries are local-only working notes, not tracked in git.
 
 An earlier Next.js-does-everything monolith (what used to live at the repo root) is now frozen and kept locally only as reference material for porting a few features it has that the rewrite doesn't yet (Dashboard, Feed, Notebook, folder tree, the browser extension) — it's no longer tracked in this repo.
 
