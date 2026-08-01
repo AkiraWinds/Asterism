@@ -140,3 +140,30 @@ def test_parse_dedup_response_raises_on_missing_key():
                         "relationship": "none"}])
     with pytest.raises(ValueError):
         parse_dedup_response(raw)
+
+
+def test_parse_dedup_response_raises_on_invalid_judgment():
+    raw = json.dumps([
+        {"existing_concept_id": "c_1", "judgment": "sort_of_the_same", "confidence": "high",
+         "relationship": "extends", "summary": "s"}
+    ])
+    with pytest.raises(ValueError):
+        parse_dedup_response(raw)
+
+
+def test_parse_dedup_response_raises_on_invalid_confidence():
+    raw = json.dumps([
+        {"existing_concept_id": "c_1", "judgment": "same", "confidence": "very_high",
+         "relationship": "extends", "summary": "s"}
+    ])
+    with pytest.raises(ValueError):
+        parse_dedup_response(raw)
+
+
+def test_parse_dedup_response_raises_on_invalid_relationship():
+    raw = json.dumps([
+        {"existing_concept_id": "c_1", "judgment": "same", "confidence": "high",
+         "relationship": "is_basically_the_same_thing", "summary": "s"}
+    ])
+    with pytest.raises(ValueError):
+        parse_dedup_response(raw)

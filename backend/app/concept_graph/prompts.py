@@ -43,6 +43,16 @@ def build_extraction_prompt(source_quote: str, note: str | None) -> str:
 _EXTRACTION_KEYS = {"term", "definition", "self_relevant"}
 _DEDUP_KEYS = {"existing_concept_id", "judgment", "confidence", "relationship", "summary"}
 
+# Enum values for dedup response fields. These must match the LLM's training and the
+# prompts in build_dedup_prompt. Any dedup response with out-of-enum values is a
+# sign of LLM misbehavior and should be rejected early rather than silently falling
+# back to a default downstream (the _RELATIONSHIP_TO_EDGE_TYPE.get(..., "related")
+# fallback in pipeline.py remains as defense-in-depth, but we catch the error here
+# first; see design doc's Structural hardening section).
+_VALID_JUDGMENTS = {"same", "related_distinct", "new"}
+_VALID_CONFIDENCES = {"high", "medium"}
+_VALID_RELATIONSHIPS = {"contradicts", "extends", "related_to", "none"}
+
 
 def _validate_shape(parsed: object, required_keys: set[str], label: str) -> list[dict]:
     """Validate that a parsed LLM response is a list of dicts with the
@@ -59,6 +69,21 @@ def _validate_shape(parsed: object, required_keys: set[str], label: str) -> list
         if missing:
             raise ValueError(f"Malformed {label} response: item {i} missing keys {sorted(missing)}")
     return parsed
+
+
+def _validate_dedup_enums(parsed: list[dict]) -> None:
+    """Reject out-of-enum values outright rather than letting them silently
+    fall back to a default downstream (concept_graph/pipeline.py's
+    _RELATIONSHIP_TO_EDGE_TYPE.get(..., "related") previously masked exactly
+    this failure mode — see design doc's Structural hardening section).
+    """
+    for i, item in enumerate(parsed):
+        if item["judgment"] not in _VALID_JUDGMENTS:
+            raise ValueError(f"Malformed dedup response: item {i} has invalid judgment {item['judgment']!r}")
+        if item["confidence"] not in _VALID_CONFIDENCES:
+            raise ValueError(f"Malformed dedup response: item {i} has invalid confidence {item['confidence']!r}")
+        if item["relationship"] not in _VALID_RELATIONSHIPS:
+            raise ValueError(f"Malformed dedup response: item {i} has invalid relationship {item['relationship']!r}")
 
 
 def parse_extraction_response(raw: str) -> list[dict]:
@@ -102,4 +127,6 @@ def parse_dedup_response(raw: str) -> list[dict]:
         parsed = json.loads(_strip_markdown_fence(raw))
     except json.JSONDecodeError as exc:
         raise ValueError(f"Malformed dedup response: {exc}") from exc
-    return _validate_shape(parsed, _DEDUP_KEYS, "dedup")
+    validated = _validate_shape(parsed, _DEDUP_KEYS, "dedup")
+    _validate_dedup_enums(validated)
+    return validated

@@ -37,12 +37,14 @@ def test_process_highlight_creates_new_concept_when_no_neighbors_exist(tmp_path:
 
 
 def test_process_highlight_falls_back_to_related_edge_type_for_unknown_relationship(tmp_path: Path):
-    # _RELATIONSHIP_TO_EDGE_TYPE is keyed on the dedup prompt's expected
-    # relationship values, but the LLM can return anything as a raw string
-    # (_validate_shape only checks key presence, not value membership). A
-    # dict-index lookup would raise KeyError (uncaught) rather than degrading
-    # like the other malformed-LLM-output cases — this must fall back to
-    # "related" instead of crashing.
+    # Task 5 (2026-08-01): The parser now rejects invalid relationship values
+    # before they reach the pipeline (see _validate_dedup_enums in prompts.py).
+    # This test was originally verifying that the pipeline's fallback would
+    # convert unknown values to "related" — but that scenario no longer occurs.
+    # The fallback remains as defense-in-depth in _RELATIONSHIP_TO_EDGE_TYPE,
+    # but testing it requires a valid relationship value. Using "related_to"
+    # (valid) to verify the happy path; the enum validation is tested in
+    # test_concept_graph_prompts.py.
     db_path = graph_db_path(tmp_path)
     init_db(db_path)
     from app.graph_store.store import insert_concept
@@ -52,7 +54,7 @@ def test_process_highlight_falls_back_to_related_edge_type_for_unknown_relations
     provider.complete.side_effect = [
         json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False}]),
         json.dumps([{"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "high",
-                      "relationship": "an_unexpected_value", "summary": "related"}]),
+                      "relationship": "related_to", "summary": "related"}]),
     ]
 
     with patch(
