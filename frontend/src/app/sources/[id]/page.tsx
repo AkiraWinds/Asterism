@@ -17,12 +17,15 @@ export default function SourcePage() {
   const [error, setError] = useState<string | null>(null);
   const [attachedHighlight, setAttachedHighlight] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const autoAnalyzeStarted = useRef(false);
 
   useEffect(() => {
     getSource(id)
       .then(setSource)
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load source"));
   }, [id]);
+
+  const handleAnalyzeRef = useRef<() => void>(() => {});
 
   async function handleAnalyze() {
     setError(null);
@@ -36,6 +39,17 @@ export default function SourcePage() {
       setAnalyzing(false);
     }
   }
+  handleAnalyzeRef.current = handleAnalyze;
+
+  // A freshly created source has no analysis.json yet — start it automatically
+  // instead of leaving it behind a manual "Analyze" click. Retries via the
+  // same button still use handleAnalyze directly, so this only fires once.
+  useEffect(() => {
+    if (source && !source.analysis && !autoAnalyzeStarted.current) {
+      autoAnalyzeStarted.current = true;
+      handleAnalyzeRef.current();
+    }
+  }, [source]);
 
   const backLink = (
     <Link

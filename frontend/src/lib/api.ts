@@ -169,6 +169,11 @@ export async function createSource(args: {
   return res.json();
 }
 
+export async function deleteSource(id: string): Promise<void> {
+  const res = await fetch(`${BACKEND_URL}/sources/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to delete source"));
+}
+
 export async function getSource(id: string): Promise<SourceDetail> {
   const res = await fetch(`${BACKEND_URL}/sources/${id}`, { cache: "no-store" });
   if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to get source"));
@@ -181,8 +186,42 @@ export async function analyzeSource(id: string): Promise<AnalysisResult> {
   return res.json();
 }
 
-export async function getChatHistory(id: string): Promise<ChatTurn[]> {
-  const res = await fetch(`${BACKEND_URL}/sources/${id}/chat`, { cache: "no-store" });
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  turn_count: number;
+}
+
+export async function listConversations(sourceId: string): Promise<ConversationSummary[]> {
+  const res = await fetch(`${BACKEND_URL}/sources/${sourceId}/chats`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load conversations"));
+  return res.json();
+}
+
+export async function createConversation(sourceId: string): Promise<ConversationSummary> {
+  const res = await fetch(`${BACKEND_URL}/sources/${sourceId}/chats`, { method: "POST" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to create new chat"));
+  return res.json();
+}
+
+// Returns the auto-created replacement conversation if this deleted the last
+// remaining thread (a source always keeps at least one), else null.
+export async function deleteConversation(
+  sourceId: string,
+  conversationId: string
+): Promise<ConversationSummary | null> {
+  const res = await fetch(`${BACKEND_URL}/sources/${sourceId}/chats/${conversationId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to delete chat"));
+  const body = await res.json();
+  return body.replacement;
+}
+
+export async function getChatHistory(id: string, conversationId: string): Promise<ChatTurn[]> {
+  const res = await fetch(`${BACKEND_URL}/sources/${id}/chat?conversation_id=${conversationId}`, {
+    cache: "no-store",
+  });
   if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load chat history"));
   const body = await res.json();
   return body.turns;
@@ -193,11 +232,12 @@ export async function getChatHistory(id: string): Promise<ChatTurn[]> {
 // frames, and dispatched by its "event:" line (default "message").
 export async function streamChatMessage(
   id: string,
+  conversationId: string,
   message: string,
   attachedHighlight: string | null,
   onChunk: (text: string) => void
 ): Promise<{ truncated: boolean; errorMessage: string | null }> {
-  const res = await fetch(`${BACKEND_URL}/sources/${id}/chat`, {
+  const res = await fetch(`${BACKEND_URL}/sources/${id}/chat?conversation_id=${conversationId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, attached_highlight: attachedHighlight }),
