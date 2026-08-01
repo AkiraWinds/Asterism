@@ -1,4 +1,4 @@
-from app.wiki.slug import slugify, unique_slug
+from app.wiki.slug import aspect_slug, slugify, unique_slug
 
 
 def test_slugify_lowercases_and_hyphenates():
@@ -20,3 +20,19 @@ def test_unique_slug_returns_base_when_free():
 def test_unique_slug_suffixes_on_collision():
     taken = {"rag"}
     assert unique_slug("RAG", "c_abc123456", taken) == "rag-123456"
+
+
+def test_aspect_slug_combines_concept_slug_and_title():
+    assert aspect_slug("retrieval-augmented-generation", "Evaluation", set()) == (
+        "retrieval-augmented-generation-evaluation"
+    )
+
+
+def test_aspect_slug_suffixes_numerically_on_collision():
+    taken = {"rag-evaluation"}
+    assert aspect_slug("rag", "Evaluation", taken) == "rag-evaluation-2"
+
+
+def test_aspect_slug_keeps_incrementing_past_first_collision():
+    taken = {"rag-evaluation", "rag-evaluation-2"}
+    assert aspect_slug("rag", "Evaluation", taken) == "rag-evaluation-3"
