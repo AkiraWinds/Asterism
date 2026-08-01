@@ -6,12 +6,6 @@
 
 ### Every note is a star. Understanding begins when we connect them.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](#get-started)
-[![Node 20+](https://img.shields.io/badge/Node-20%2B-blue.svg)](#get-started)
-[![Local-first](https://img.shields.io/badge/Local--first-your%20files%2C%20your%20machine-8b5cf6.svg)](#your-data-stays-yours)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-
 **An asterism is a pattern people draw between stars — the stars themselves aren't
 connected, we make the connection. Every note, article, and conversation you capture
 is a star on its own. Asterism's job is the connections you and your agent draw
@@ -30,17 +24,28 @@ Asterism is a local-first personal knowledge base with an agent inside — but t
 > Knowledge is not valuable because it is stored. It becomes valuable because meaningful relationships are discovered.
 
 ```text
-URLs · Web articles · Notes                     Highlights you save
-        │                                              │
-        ▼                                              ▼
-  Fetch + extract              Concept extraction, embedding, dedup
-        │                                              │
-        ▼                                              ▼
-Triage · Digest · Critique      ──────▶      Knowledge graph (SQLite)
-Claims · Source connections                    │
-        │                                       ▼
-        ▼                              Wiki (browsable markdown pages)
-   Streaming chat over a source
+              Capture (URL or text)
+                        │
+                        ▼
+                Fetch + extract
+                        │
+                        ▼
+   Triage · Digest · Critique · Claims ──── Streaming chat over the source
+                        │
+                        ▼
+             Source-to-source connections
+                        │
+                        ▼
+                Highlights you save
+                        │
+                        ▼
+   Concept extraction → embedding → dedup
+                        │
+                        ▼
+             Knowledge graph (SQLite)
+                        │
+                        ▼
+        Wiki (browsable markdown pages)
 ```
 
 Everything in [What ships today](#what-ships-today) is what actually exists right now, built on the current backend/frontend stack. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full phase-by-phase plan of where this is headed (copilot retrieval across the whole library, a Dashboard/Feed, the browser extension).
@@ -123,7 +128,3 @@ An earlier Next.js-does-everything monolith (what used to live at the repo root)
 - **No Asterism cloud** — analysis runs through your own authenticated agent session or your own API key, never a hosted backend.
 
 Inspect your data folder, back it up, sync it, or delete it with normal file tools.
-
-## License
-
-[MIT](LICENSE) — Asterism began as a fork of [SecondBrain](https://github.com/ryannli/secondbrain); the original license and attribution are preserved.
