@@ -130,7 +130,10 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
 
         try:
             raw = llm_provider.complete(build_wiki_page_prompt(concept["term"], concept["definition"], citations, concept_edges))
-            body = parse_wiki_page_response(raw)
+            parsed_response = parse_wiki_page_response(raw)
+            body = parsed_response["overview"]
+            # Task 4 wires parsed_response["aspects"]/["warnings"] into actual
+            # aspect-page generation; this task only keeps single-page compile working.
         except (ValueError, ProviderError) as exc:
             logger.exception("Wiki compile failed for concept_id=%s", concept_id)
             errors.append({"concept_id": concept_id, "message": str(exc)})
