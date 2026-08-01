@@ -129,6 +129,30 @@ def test_approve_watchlist_entry_flags_matched_concept_golden(tmp_path: Path, mo
     assert get_concept(db_path, "c_1")["golden"] is True
 
 
+def test_patch_watchlist_entry_flips_resolved_back_to_pending(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    _write_config(tmp_path)
+    monkeypatch.setattr("app.routers.watchlist.embed_text", lambda api_key, text: [0.0, 1.0])
+    # resolve_watchlist_entry (invoked synchronously by both POST /watchlist and
+    # PATCH /watchlist/{id}) calls its own module-level embed_text reference in
+    # app.watchlist.resolver, separate from the router's — both need stubbing to
+    # avoid a real embeddings API call.
+    monkeypatch.setattr("app.watchlist.resolver.embed_text", lambda api_key, text: [0.0, 1.0])
+    monkeypatch.setattr("app.routers.watchlist.build_provider", lambda config, data_root: _StubProvider("A drafted definition."))
+    created = client.post("/watchlist", json={"term": "Some new term"}).json()
+    approved = client.post(f"/watchlist/{created['id']}/approve").json()
+    assert approved["status"] == "resolved"
+    assert approved["resolved_concept_id"] is not None
+
+    response = client.patch(f"/watchlist/{created['id']}", json={"term": "A renamed term"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["term"] == "A renamed term"
+    assert body["status"] == "pending"
+    assert body["resolved_concept_id"] is None
+
+
 def test_reject_watchlist_entry_marks_rejected_without_creating_concept(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
     _write_config(tmp_path)
