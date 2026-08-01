@@ -8,6 +8,8 @@ Per `docs/updates/plans/7-18-customize-personal-system.md` (local-only): Asteris
 
 Two independent motivations drive the current rewrite specifically: **ownership** (the inherited "second brain" codebase should become genuinely the user's own code, not carried-over authorship) and a **deliberate stack change** to Python + LangGraph + a real knowledge graph, replacing the inherited Next.js-does-everything architecture.
 
+**Legacy status (decided 2026-08-01)**: the inherited Next.js monolith (`src/`, `src-tauri/` — what `README.md` currently describes as "what ships today") is now **fully frozen**. No further commits land there, security fixes included. It's kept only as reference material for porting its missing functionality — Dashboard, Feed, Notebook, folder tree, desktop shell — into `backend/`+`frontend/` below. See `docs/superpowers/specs/2026-08-01-legacy-freeze-decision-design.md`. Phases below that involve rebuilding legacy-only features (e.g. Phase 7's extension rewrite, and any future Dashboard/Feed/Notebook phase) are explicitly *porting from legacy*, not new invention.
+
 ## Phase 0 — Repo Independence (DONE)
 
 Split Asterism from its "second brain" origin into a genuinely independent repo: fresh git history, MIT attribution preserved, old full-history copy kept at `Asterism_back/` for reference. See `docs/updates/plans/7-25-second-brain-inheritance-audit.md` (local-only) and `docs/updates/sessions/7-25-repo-split-and-backend-foundation.md`.
@@ -87,6 +89,13 @@ The centerpiece of the whole rewrite. Fully decided at the design level in `docs
 1. **Two-tier graph**: Tier 1 = existing source-level Knowledge Galaxy (cheap, automatic, one node per source). Tier 2 = new concept-level graph, built only from user highlights/notes (rich, triggered by engagement, not run on every ingested article).
 2. **Entity dedup**: embedding filter + LLM judgment, confidence-gated — high-confidence merges auto-apply, ambiguous ones queue for batch review. A user's own note asserting a relationship overrides ambiguous embedding similarity (validated in Phase-1 prompt testing, see `docs/updates/plans/7-25-phase1-prompt-validation.md`, local-only).
 3. **Copilot retrieval**: hybrid graph-guided — resolve query to concept node(s), expand 1-2 hops, pull real source passages as grounding, fall back to plain semantic search for unhighlighted content.
+   **Placeholder, decide when 6c starts (2026-07-31)**: keep graph-guided retrieval and plain semantic search as two
+   parallel, independently invokable paths rather than collapsing to one, and run both against the same queries to
+   compare before committing further. Semantic search itself should become hybrid (embedding similarity + BM25/keyword
+   search), not embedding-only. **Why:** it's not yet clear which retrieval approach performs better for this data, and
+   embedding-only search misses exact-term/keyword matches that BM25 catches. Open question this creates: what
+   comparison metric decides "better" (retrieved-passage relevance, answer groundedness, or user acceptance) — needs
+   an answer before the comparison is meaningful, not just wiring.
 4. **Ingestion scope**: prose-like sources only for MVP (see Phase 3 note above).
 5. **Storage**: ~~Kuzu~~ **superseded 2026-07-30**: Kuzu was archived in October 2025 after its creator's acquisition by Apple, maintenance passed to an unproven community fork. Phase 6b uses plain SQLite instead (brute-force cosine similarity, no dedicated graph DB) — see `docs/superpowers/specs/2026-07-30-knowledge-graph-phase6b-design.md`.
 6. **Notes ↔ graph integration**: the user's own written notes are highlighted the same way as sources, feeding the same extraction pipeline — this is what makes it a *personal* knowledge graph rather than a reader + a separate notes app.

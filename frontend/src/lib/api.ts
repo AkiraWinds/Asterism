@@ -120,6 +120,21 @@ export interface HighlightProcessResult {
   duplicate: boolean;
 }
 
+export type FeedbackKind = "concept" | "claim" | "critique";
+
+export interface Feedback {
+  id: string;
+  kind: FeedbackKind;
+  section: string | null;
+  content: string;
+  term: string | null;
+  rating: "up" | "down";
+  promoted: boolean;
+  promoted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Backend failures return a structured body — either an AgentErrorResponse
 // ({ message }) from the agent-integration paths, or a plain FastAPI
 // HTTPException ({ detail }) from everything else. Prefer whichever is
@@ -247,5 +262,42 @@ export async function getHighlights(sourceId: string): Promise<UserHighlight[]> 
 export async function getGraph(): Promise<GraphData> {
   const res = await fetch(`${BACKEND_URL}/graph`, { cache: "no-store" });
   if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load graph"));
+  return res.json();
+}
+
+export async function getFeedback(sourceId: string): Promise<Feedback[]> {
+  const res = await fetch(`${BACKEND_URL}/sources/${sourceId}/feedback`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load feedback"));
+  const body = await res.json();
+  return body.entries;
+}
+
+export async function putFeedback(
+  sourceId: string,
+  kind: FeedbackKind,
+  content: string,
+  rating: "up" | "down",
+  options: { section?: string; term?: string } = {}
+): Promise<Feedback> {
+  const res = await fetch(`${BACKEND_URL}/sources/${sourceId}/feedback`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      kind,
+      content,
+      rating,
+      section: options.section ?? null,
+      term: options.term ?? null,
+    }),
+  });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to save feedback"));
+  return res.json();
+}
+
+export async function promoteFeedback(sourceId: string, feedbackId: string): Promise<HighlightProcessResult> {
+  const res = await fetch(`${BACKEND_URL}/sources/${sourceId}/feedback/${feedbackId}/promote`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to promote to graph"));
   return res.json();
 }

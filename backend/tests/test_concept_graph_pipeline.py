@@ -3,9 +3,10 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.concept_graph.pipeline import process_highlight
+from app.concept_graph.pipeline import process_highlight, promote_concept
 from app.graph_store.store import graph_db_path, init_db, list_concepts, list_edges, list_review_queue
 from app.providers.base import ProviderConfigError
+from app.schemas.analysis import Concept
 from app.schemas.highlight import Highlight
 
 
@@ -512,3 +513,37 @@ def test_process_source_concepts_retry_does_not_duplicate_provenance_row(tmp_pat
             "SELECT concept_id, source_id FROM concept_sources WHERE source_id = 'source_a'"
         ).fetchall()
     assert [(r["concept_id"], r["source_id"]) for r in rows] == [(concept_id, "source_a")]
+
+
+def test_promote_concept_creates_new_node_when_no_neighbors(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    provider = MagicMock()
+    highlight = Highlight(
+        id="h_1", source_quote="AI processes information faster than humans.",
+        source_title="T", created_at="2026-08-01T00:00:00Z",
+    )
+    concept = Concept(id="c1", term="AI-first triage", definition="AI processes information faster than humans.")
+
+    result = promote_concept(tmp_path, "src_1", highlight, concept, provider, "sk-embed")
+
+    assert len(result.concepts) == 1
+    assert result.concepts[0].term == "AI-first triage"
+    assert result.extraction_error is None
+    provider.complete.assert_not_called()  # no extraction LLM call — term/definition already known
+
+
+def test_promote_concept_stores_self_relevant_true(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    provider = MagicMock()
+    highlight = Highlight(id="h_1", source_quote="def", source_title="T", created_at="2026-08-01T00:00:00Z")
+    concept = Concept(id="c1", term="term", definition="def")
+
+    promote_concept(tmp_path, "src_1", highlight, concept, provider, "sk-embed")
+
+    from app.graph_store.store import graph_db_path, init_db
+    import sqlite3
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    conn = sqlite3.connect(db_path)
+    row = conn.execute("SELECT self_relevant FROM concepts").fetchone()
+    assert row[0] == 1
