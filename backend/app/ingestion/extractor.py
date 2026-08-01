@@ -10,8 +10,10 @@ MAX_HTML_CHARS = 120_000
 
 EXTRACTION_PROMPT_TEMPLATE = (
     "Extract the main readable article content from the following HTML and return "
-    "it as clean Markdown. Preserve headings, paragraphs, links, images, and tables "
-    "where present. Return only the Markdown, no commentary.\n\nHTML:\n{html}"
+    "it as clean Markdown. Preserve headings, paragraphs, images, and tables where "
+    "present. Preserve every inline hyperlink as Markdown link syntax "
+    "[text](url) using each anchor's href — do not drop links or flatten them to "
+    "plain text. Return only the Markdown, no commentary.\n\nHTML:\n{html}"
 )
 
 
@@ -22,6 +24,7 @@ def extract_content(html: str, url: str, data_root: Path) -> str:
         output_format="markdown",
         include_tables=True,
         include_images=True,
+        include_links=True,
     )
 
     if extracted and len(extracted) > MIN_LENGTH:
