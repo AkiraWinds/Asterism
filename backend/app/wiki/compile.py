@@ -129,7 +129,12 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
                 aspect_path = wiki_dir / f"{existing_aspect_slug}.md"
                 if not aspect_path.exists():
                     continue
-                aspect_frontmatter = parse_wiki_page_frontmatter(aspect_path.read_text())
+                # Same invariant as `_scan_existing_pages`: a hand-edited/corrupt
+                # aspect page must not abort the whole compile run.
+                try:
+                    aspect_frontmatter = parse_wiki_page_frontmatter(aspect_path.read_text())
+                except ValueError:  # json.JSONDecodeError is a ValueError subclass
+                    aspect_frontmatter = None
                 aspect_term = aspect_frontmatter.get("term", existing_aspect_slug) if aspect_frontmatter else existing_aspect_slug
                 aspect_pages_meta.append({"term": aspect_term, "slug": existing_aspect_slug})
             page_meta.append({
@@ -167,6 +172,12 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
                 stale_path = wiki_dir / f"{stale_aspect_slug}.md"
                 if stale_path.exists():
                     stale_path.unlink()
+                # Discard unconditionally (even if the file was already gone,
+                # e.g. hand-deleted) so `taken_slugs` doesn't keep treating a
+                # freed slug as occupied — otherwise a concept whose proposed
+                # aspect titles are stable across regenerations would get a
+                # spurious numeric collision-suffix every other run.
+                taken_slugs.discard(stale_aspect_slug)
 
         source_ids = sorted({p["source_id"] for p in provenance})
         updated_at = _now_iso()

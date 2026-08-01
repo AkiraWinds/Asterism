@@ -304,6 +304,71 @@ def test_run_compile_deletes_aspect_files_when_concept_becomes_unsplit(tmp_path:
     assert "aspects" not in overview_text.split("---")[1]  # frontmatter block only
 
 
+def test_run_compile_stale_aspect_deletion_spares_other_concepts_colliding_overview(tmp_path: Path):
+    # This is the whole rationale for deleting stale aspects via the
+    # overview's own recorded "aspects" frontmatter list instead of a
+    # `wiki_dir.glob(f"{slug}-*.md")` pattern: two *different* concepts that
+    # happen to share a `term` both slugify to the same base ("rag"), so the
+    # second one gets unique_slug()'s collision-suffix form (e.g.
+    # "rag-abc123"). A glob for concept A's stale aspects ("rag-*.md") would
+    # also match and delete concept B's entire overview page. Prove it
+    # doesn't.
+    db_path = _seed_qualifying_concept(tmp_path, "c_1", "RAG")  # concept A -> slug "rag"
+    concept_b_id = "c_2_extra"
+    insert_concept(db_path, concept_b_id, "RAG", "def-b", [0.2], False, "2026-07-31T00:00:00Z")
+    for i in range(3):
+        link_concept_highlight(db_path, concept_b_id, f"t_{i}", f"g_{i}")
+    concept_b_slug = f"rag-{concept_b_id[-6:]}"  # unique_slug()'s collision-suffix form
+
+    class ByDefinitionProvider(Provider):
+        """Routes each concept to its own scripted response by matching the
+        `definition` text `build_wiki_page_prompt` embeds verbatim in the
+        prompt -- avoids depending on concept iteration order."""
+
+        def __init__(self, responses_by_definition: dict[str, str]):
+            self.responses_by_definition = responses_by_definition
+            self.calls = 0
+
+        def complete(self, prompt: str) -> str:
+            self.calls += 1
+            for definition, response in self.responses_by_definition.items():
+                if f"Base definition: {definition}" in prompt:
+                    return response
+            raise AssertionError(f"no scripted response matched prompt: {prompt!r}")
+
+    provider = ByDefinitionProvider({
+        "Retrieval-augmented generation.": _split_response(
+            "RAG overview A v1.", [{"title": "Retrieval Strategies", "content": "Strategy prose."}],
+        ),
+        "def-b": '{"synthesis": "RAG overview B."}',
+    })
+
+    run_compile(tmp_path, provider)
+
+    assert (tmp_path / "wiki" / "rag.md").exists()
+    assert (tmp_path / "wiki" / "rag-retrieval-strategies.md").exists()
+    assert (tmp_path / "wiki" / f"{concept_b_slug}.md").exists()
+    concept_b_overview_before = (tmp_path / "wiki" / f"{concept_b_slug}.md").read_text()
+
+    # Regenerate only concept A (provenance change -> new hash) with a
+    # different split; concept B's provenance is untouched, so it takes the
+    # unchanged/skip path and never calls the LLM again.
+    link_concept_highlight(db_path, "c_1", "s_3", "h_3")
+    provider.responses_by_definition["Retrieval-augmented generation."] = _split_response(
+        "RAG overview A v2.", [{"title": "History", "content": "History prose."}],
+    )
+
+    run_compile(tmp_path, provider)
+
+    assert not (tmp_path / "wiki" / "rag-retrieval-strategies.md").exists()
+    assert (tmp_path / "wiki" / "rag-history.md").exists()
+    # The critical assertion: concept B's own overview page -- whose slug
+    # collides with concept A's aspect-slug glob pattern -- must survive
+    # concept A's stale-aspect cleanup untouched.
+    assert (tmp_path / "wiki" / f"{concept_b_slug}.md").exists()
+    assert (tmp_path / "wiki" / f"{concept_b_slug}.md").read_text() == concept_b_overview_before
+
+
 def test_run_compile_falls_back_to_single_page_on_malformed_aspect_entry(tmp_path: Path):
     import json
     _seed_qualifying_concept(tmp_path)
