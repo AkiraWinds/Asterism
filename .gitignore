@@ -82,6 +82,9 @@ sample_data/.debug/
 marketing/*/renders/
 marketing/*/.hyperframes/
 marketing/*/.thumbnails/
+
+# Marketing hero-video generator — separate tool, kept on disk, not tracked.
+/marketing/hero-video/
 /demo_data2/
 
 
