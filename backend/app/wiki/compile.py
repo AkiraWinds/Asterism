@@ -120,11 +120,12 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
 
         if unchanged:
             page_bodies[concept_id] = extract_synthesis_body(page_path.read_text())
-            # Aspect pages aren't independently hash-checked (see the docstring
-            # on this function's regeneration branch below) — on an unchanged
-            # run we just re-read whichever aspect files the last run wrote,
-            # keyed by the overview's own recorded "aspects" slug list.
-            aspect_pages_meta = []
+            # Aspect pages aren't independently hash-checked — staleness is
+            # decided once at the concept level (see the provenance-hash
+            # comparison above), so on an unchanged run we just re-read
+            # whichever aspect files the last run wrote, keyed by the
+            # overview's own recorded "aspects" slug list.
+            aspect_pages_meta: list[dict] = []
             for existing_aspect_slug in existing["frontmatter"].get("aspects", []):
                 aspect_path = wiki_dir / f"{existing_aspect_slug}.md"
                 if not aspect_path.exists():
@@ -164,26 +165,36 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
         # writing the new set — the LLM re-decides the split fresh on every
         # regeneration (it's not a sticky decision), so the proposed aspects
         # can differ from last run's. Using the overview's own recorded slug
-        # list (not a directory glob) means we only ever delete files that
-        # belong to *this* concept, never another concept's page that
-        # happens to share a slug prefix (see this task's docstring above).
+        # list (not a directory glob) means we only ever *consider* deleting
+        # files that were once associated with this concept, never another
+        # concept's page that happens to share a slug prefix. But a recorded
+        # slug name alone isn't proof of current ownership: if that aspect
+        # file was hand-deleted and a brand-new, unrelated concept later got
+        # handed that exact freed slug by unique_slug()/aspect_slug(), an
+        # unconditional discard()/unlink() here would silently reclaim or
+        # destroy the new concept's real page. So re-verify ownership via the
+        # file's own frontmatter (`aspect_of`/`concept_id`) before touching
+        # it, and only ever free the slug when we can actually confirm it's
+        # still ours or it's already gone.
         if existing is not None:
             for stale_aspect_slug in existing["frontmatter"].get("aspects", []):
                 stale_path = wiki_dir / f"{stale_aspect_slug}.md"
-                if stale_path.exists():
-                    stale_path.unlink()
-                # Discard unconditionally (even if the file was already gone,
-                # e.g. hand-deleted) so `taken_slugs` doesn't keep treating a
-                # freed slug as occupied — otherwise a concept whose proposed
-                # aspect titles are stable across regenerations would get a
-                # spurious numeric collision-suffix every other run.
+                if not stale_path.exists():
+                    continue  # already gone; if the slug is taken now it belongs to someone else, not ours to free
+                try:
+                    stale_frontmatter = parse_wiki_page_frontmatter(stale_path.read_text()) or {}
+                except ValueError:  # json.JSONDecodeError is a ValueError subclass
+                    continue  # unparseable — leave it alone, same tolerance as elsewhere in this module
+                if stale_frontmatter.get("aspect_of") != slug or stale_frontmatter.get("concept_id") != concept_id:
+                    continue  # ownership changed since we last recorded it — never delete another concept's page
+                stale_path.unlink()
                 taken_slugs.discard(stale_aspect_slug)
 
         source_ids = sorted({p["source_id"] for p in provenance})
         updated_at = _now_iso()
 
         aspect_slugs: list[str] = []
-        aspect_pages_meta = []
+        aspect_pages_meta: list[dict] = []
         for aspect in parsed_response["aspects"]:
             this_aspect_slug = aspect_slug(slug, aspect["title"], taken_slugs)
             taken_slugs.add(this_aspect_slug)

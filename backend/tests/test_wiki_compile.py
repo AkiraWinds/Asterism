@@ -3,7 +3,8 @@ from pathlib import Path
 
 from app.graph_store.store import graph_db_path, init_db, insert_concept, insert_edge, link_concept_highlight
 from app.providers.base import Provider, ProviderError
-from app.wiki.compile import run_compile
+from app.wiki.compile import _scan_existing_pages, run_compile
+from app.wiki.render import render_aspect_page, render_wiki_page
 
 
 class StubProvider(Provider):
@@ -304,6 +305,33 @@ def test_run_compile_deletes_aspect_files_when_concept_becomes_unsplit(tmp_path:
     assert "aspects" not in overview_text.split("---")[1]  # frontmatter block only
 
 
+def test_scan_existing_pages_excludes_aspect_pages_from_concept_map(tmp_path: Path):
+    # `_scan_existing_pages` builds concept_id -> overview-slug; an aspect
+    # page shares its parent's concept_id but must never be picked as "the"
+    # page for that concept_id, or a re-run would treat the aspect file as
+    # the overview and overwrite it. Deterministic (no directory-glob-order
+    # dependency), unlike the existing compile-level tests that only
+    # exercise this incidentally.
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+    overview_text = render_wiki_page(
+        concept_id="c_1", term="RAG", updated_at="2026-07-31T00:00:00Z",
+        source_highlight_count=3, source_provenance_hash="hash1", source_ids=["s_0"],
+        body="Overview body.", related_section="", sources_section="", aspects=["rag-evaluation"],
+    )
+    (wiki_dir / "rag.md").write_text(overview_text)
+    aspect_text = render_aspect_page(
+        concept_id="c_1", term="Evaluation", aspect_of="rag",
+        updated_at="2026-07-31T00:00:00Z", source_ids=["s_0"], body="Aspect body.",
+    )
+    (wiki_dir / "rag-evaluation.md").write_text(aspect_text)
+
+    pages = _scan_existing_pages(wiki_dir)
+
+    assert pages.keys() == {"c_1"}
+    assert pages["c_1"]["slug"] == "rag"
+
+
 def test_run_compile_stale_aspect_deletion_spares_other_concepts_colliding_overview(tmp_path: Path):
     # This is the whole rationale for deleting stale aspects via the
     # overview's own recorded "aspects" frontmatter list instead of a
@@ -369,13 +397,98 @@ def test_run_compile_stale_aspect_deletion_spares_other_concepts_colliding_overv
     assert (tmp_path / "wiki" / f"{concept_b_slug}.md").read_text() == concept_b_overview_before
 
 
-def test_run_compile_falls_back_to_single_page_on_malformed_aspect_entry(tmp_path: Path):
+def test_run_compile_does_not_clobber_a_different_concept_that_reclaimed_a_freed_aspect_slug(tmp_path: Path):
+    # Reproduces the exact failure sequence from the final-review finding:
+    # concept A gets an aspect at slug "rag-history"; a user hand-deletes
+    # that file (this module explicitly tolerates hand-edited/missing wiki
+    # files elsewhere); a brand-new, unrelated concept B ("RAG History")
+    # then legitimately lands on that exact freed slug via unique_slug()
+    # on a later compile; A's next regeneration must NOT trust its own
+    # stale recorded slug name and delete/reclaim B's real page.
+    db_path = _seed_qualifying_concept(tmp_path, "c_1", "RAG")  # concept A -> slug "rag"
+
+    class ByDefinitionProvider(Provider):
+        """Same pattern as the colliding-overview test above: route each
+        concept to its own scripted response by matching the `definition`
+        text `build_wiki_page_prompt` embeds verbatim, so this doesn't
+        depend on concept iteration order."""
+
+        def __init__(self, responses_by_definition: dict[str, str]):
+            self.responses_by_definition = responses_by_definition
+            self.calls = 0
+
+        def complete(self, prompt: str) -> str:
+            self.calls += 1
+            for definition, response in self.responses_by_definition.items():
+                if f"Base definition: {definition}" in prompt:
+                    return response
+            raise AssertionError(f"no scripted response matched prompt: {prompt!r}")
+
+    provider = ByDefinitionProvider({
+        "Retrieval-augmented generation.": _split_response(
+            "RAG overview v1.", [{"title": "History", "content": "History prose v1."}],
+        ),
+    })
+
+    run_compile(tmp_path, provider)  # Run 1: writes rag.md + rag-history.md
+
+    assert (tmp_path / "wiki" / "rag.md").exists()
+    assert (tmp_path / "wiki" / "rag-history.md").exists()
+
+    # Simulate the hand-delete: the user removes concept A's aspect file
+    # directly on disk, out from under the compile layer.
+    (tmp_path / "wiki" / "rag-history.md").unlink()
+
+    # Seed a brand-new, unrelated concept whose term slugifies to exactly
+    # the freed slug "rag-history".
+    concept_b_id = "c_2_new"
+    insert_concept(db_path, concept_b_id, "RAG History", "def-b", [0.3], False, "2026-07-31T00:00:00Z")
+    for i in range(3):
+        link_concept_highlight(db_path, concept_b_id, f"u_{i}", f"v_{i}")
+
+    provider.responses_by_definition["def-b"] = '{"synthesis": "RAG History overview."}'
+
+    run_compile(tmp_path, provider)  # Run 2: concept A unchanged (skip path); concept B is new -> claims "rag-history"
+
+    concept_b_page = tmp_path / "wiki" / "rag-history.md"
+    assert concept_b_page.exists()
+    concept_b_text_before = concept_b_page.read_text()
+    assert '"c_2_new"' in concept_b_text_before  # it's genuinely concept B's own page now
+
+    # Now trigger concept A's regeneration, proposing the *same* aspect
+    # title ("History") again -- the buggy code would trust its own
+    # recorded "aspects": ["rag-history"] frontmatter, discard/reclaim that
+    # slug, and overwrite (or later unlink) concept B's real page.
+    link_concept_highlight(db_path, "c_1", "s_3", "h_3")  # provenance change -> regenerate
+    provider.responses_by_definition["Retrieval-augmented generation."] = _split_response(
+        "RAG overview v2.", [{"title": "History", "content": "History prose v2."}],
+    )
+
+    run_compile(tmp_path, provider)  # Run 3: concept A regenerates
+
+    # Concept B's page must survive completely untouched.
+    assert concept_b_page.exists()
+    assert concept_b_page.read_text() == concept_b_text_before
+
+    # Concept A must not have silently stolen "rag-history" -- its new
+    # aspect must land on a different (suffixed) slug instead, since
+    # "rag-history" is legitimately taken by concept B.
+    assert (tmp_path / "wiki" / "rag-history-2.md").exists()
+    assert "History prose v2." in (tmp_path / "wiki" / "rag-history-2.md").read_text()
+    overview_a_text = (tmp_path / "wiki" / "rag.md").read_text()
+    assert '"rag-history"' not in overview_a_text.split("---")[1]  # frontmatter must not list B's slug as A's own
+
+
+def test_run_compile_falls_back_to_single_page_on_malformed_aspect_entry(tmp_path: Path, caplog):
     import json
+    import logging
+
     _seed_qualifying_concept(tmp_path)
     raw = json.dumps({"synthesis": "RAG overview.", "aspects": [{"title": "Missing content"}]})
     provider = StubProvider(raw)
 
-    result = run_compile(tmp_path, provider)
+    with caplog.at_level(logging.WARNING):
+        result = run_compile(tmp_path, provider)
 
     assert result["errors"] == []
     assert result["pages_new"] == 1
@@ -384,3 +497,5 @@ def test_run_compile_falls_back_to_single_page_on_malformed_aspect_entry(tmp_pat
     assert "aspects" not in overview_text.split("---")[1]
     aspect_files = [p for p in (tmp_path / "wiki").glob("rag-*.md")]
     assert aspect_files == []
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("c_1" in r.getMessage() for r in warning_records)
