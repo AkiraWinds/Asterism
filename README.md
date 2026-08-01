@@ -170,3 +170,5 @@ Contributor guide: [CONTRIBUTING.md](CONTRIBUTING.md). Agent-facing project cont
 ## License
 
 [MIT](LICENSE) — Asterism began as a fork of [SecondBrain](https://github.com/ryannli/secondbrain); the original license and attribution are preserved.
+
+<!-- ci: verify branch protection 2026-08-01T11:14:18Z -->
