@@ -628,3 +628,68 @@ def test_promote_concept_stores_self_relevant_true(tmp_path, monkeypatch):
     conn = sqlite3.connect(db_path)
     row = conn.execute("SELECT self_relevant FROM concepts").fetchone()
     assert row[0] == 1
+
+
+def test_new_concept_uses_web_search_result_when_available(tmp_path, monkeypatch):
+    # No existing concepts in the graph, so nearest_neighbors returns [] and
+    # the `if not neighbors:` short-circuit in _dedupe_and_insert is the "new
+    # concept" path exercised here (same path as
+    # test_process_highlight_creates_new_concept_when_no_neighbors_exist).
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr(
+        "app.concept_graph.pipeline.search_web",
+        lambda api_key, query, count=3: [
+            {"title": "AI-first triage", "url": "https://example.com/ai-first-triage",
+             "description": "A grounded, real-world description of AI-first triage."}
+        ],
+    )
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"term": "AI-first triage", "definition": "AI processes first.", "self_relevant": False}
+    ])
+
+    result = process_highlight(
+        tmp_path, "source_a", _make_highlight(), provider, "sk-embed", brave_api_key="sk-brave",
+    )
+
+    assert result.extraction_error is None
+    assert len(result.concepts) == 1
+    assert "grounded, real-world description" in result.concepts[0].definition
+    assert "https://example.com/ai-first-triage" in result.concepts[0].definition
+    assert "AI processes first." not in result.concepts[0].definition
+
+
+def test_new_concept_keeps_extraction_definition_when_no_brave_key(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    search_web_mock = MagicMock()
+    monkeypatch.setattr("app.concept_graph.pipeline.search_web", search_web_mock)
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"term": "AI-first triage", "definition": "AI processes first.", "self_relevant": False}
+    ])
+
+    result = process_highlight(
+        tmp_path, "source_a", _make_highlight(), provider, "sk-embed", brave_api_key=None,
+    )
+
+    assert result.extraction_error is None
+    assert len(result.concepts) == 1
+    assert result.concepts[0].definition == "AI processes first."
+    search_web_mock.assert_not_called()
+
+
+def test_new_concept_keeps_extraction_definition_when_web_search_returns_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.search_web", lambda api_key, query, count=3: [])
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"term": "AI-first triage", "definition": "AI processes first.", "self_relevant": False}
+    ])
+
+    result = process_highlight(
+        tmp_path, "source_a", _make_highlight(), provider, "sk-embed", brave_api_key="sk-brave",
+    )
+
+    assert result.extraction_error is None
+    assert len(result.concepts) == 1
+    assert result.concepts[0].definition == "AI processes first."

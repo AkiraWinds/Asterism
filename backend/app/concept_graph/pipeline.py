@@ -34,9 +34,11 @@ from app.graph_store.store import (
 )
 from app.providers.base import Provider, ProviderConfigError, ProviderError, ProviderMissingError
 from app.providers.embeddings import embed_text
+from app.repositories.config_repository import load_brave_api_key
 from app.schemas.analysis import Concept
 from app.schemas.graph import ConceptNode, Edge, HighlightProcessResult, ReviewQueueEntry
 from app.schemas.highlight import Highlight
+from app.search.brave import search_web
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +119,7 @@ def _dedupe_and_insert(
     link_fn: Callable[[str], None],
     llm_provider: Provider,
     embeddings_api_key: str,
+    brave_api_key: str | None,
     log_context: str,
 ) -> tuple[list[ConceptNode], list[Edge], list[ReviewQueueEntry], str | None]:
     """Runs embed -> nearest-neighbor -> dedup-judge -> apply/queue for each
@@ -138,13 +141,31 @@ def _dedupe_and_insert(
             id=concept_id, term=item["term"], definition=item["definition"], self_relevant=item["self_relevant"]
         )
 
+    def _ground_via_web_search(item: dict) -> dict:
+        """Try to replace a freely-invented definition with one grounded in a
+        real web-search result, for a term that has no existing graph match.
+        Returns `item` unchanged if no key is configured or search comes up
+        empty — this is the last step of the resolution chain's "new concept"
+        branch (see design doc), not a hard requirement."""
+        if brave_api_key is None:
+            return item
+        try:
+            results = search_web(brave_api_key, item["term"])
+        except ProviderError:
+            return item
+        if not results:
+            return item
+        top = results[0]
+        grounded_definition = f"{top['description']} (source: {top['url']})" if top["description"] else item["definition"]
+        return {**item, "definition": grounded_definition}
+
     try:
         for item in items:
             embedding = embed_text(embeddings_api_key, item["definition"])
             neighbors = nearest_neighbors(db_path, embedding, top_k=3)
 
             if not neighbors:
-                created_concepts.append(_create_concept(item, embedding))
+                created_concepts.append(_create_concept(_ground_via_web_search(item), embedding))
                 continue
 
             neighbor_payload = [{"id": c["id"], "term": c["term"], "definition": c["definition"]} for c, _ in neighbors]
@@ -168,7 +189,7 @@ def _dedupe_and_insert(
                 continue
 
             if best["judgment"] == "new":
-                created_concepts.append(_create_concept(item, embedding))
+                created_concepts.append(_create_concept(_ground_via_web_search(item), embedding))
                 continue
 
             # judgment == "related_distinct"
@@ -204,6 +225,7 @@ def process_highlight(
     highlight: Highlight,
     llm_provider: Provider,
     embeddings_api_key: str,
+    brave_api_key: str | None = None,
 ) -> HighlightProcessResult:
     db_path = graph_db_path(data_root)
     # CREATE TABLE IF NOT EXISTS makes this idempotent and cheap — safe to call
@@ -223,7 +245,7 @@ def process_highlight(
     concepts, edges, queued, error = _dedupe_and_insert(
         db_path, extracted, highlight.note,
         link_fn=lambda concept_id: link_concept_highlight(db_path, concept_id, source_id, highlight.id),
-        llm_provider=llm_provider, embeddings_api_key=embeddings_api_key,
+        llm_provider=llm_provider, embeddings_api_key=embeddings_api_key, brave_api_key=brave_api_key,
         log_context=f"highlight id={highlight.id} source_id={source_id}",
     )
     if error is not None:
@@ -238,6 +260,7 @@ def process_source_concepts(
     concepts: list[Concept],
     llm_provider: Provider,
     embeddings_api_key: str,
+    brave_api_key: str | None = None,
 ) -> tuple[list[ConceptNode], list[Edge], list[ReviewQueueEntry], str | None]:
     """Feeds a source's already-extracted digest concepts (Phase 4's
     Concept: {id, term, definition}, no note) through the same
@@ -263,7 +286,7 @@ def process_source_concepts(
     return _dedupe_and_insert(
         db_path, items, note=None,
         link_fn=lambda concept_id: link_concept_source(db_path, concept_id, source_id),
-        llm_provider=llm_provider, embeddings_api_key=embeddings_api_key,
+        llm_provider=llm_provider, embeddings_api_key=embeddings_api_key, brave_api_key=brave_api_key,
         log_context=f"source_id={source_id} (Tier-1)",
     )
 
@@ -275,6 +298,7 @@ def promote_concept(
     concept: Concept,
     llm_provider: Provider,
     embeddings_api_key: str,
+    brave_api_key: str | None = None,
 ) -> HighlightProcessResult:
     """Feeds a single user-endorsed digest Concept through the same
     embed->dedup->apply pipeline process_highlight uses, skipping the
@@ -295,7 +319,7 @@ def promote_concept(
     concepts, edges, queued, error = _dedupe_and_insert(
         db_path, items, note=None,
         link_fn=lambda concept_id: link_concept_highlight(db_path, concept_id, source_id, highlight.id),
-        llm_provider=llm_provider, embeddings_api_key=embeddings_api_key,
+        llm_provider=llm_provider, embeddings_api_key=embeddings_api_key, brave_api_key=brave_api_key,
         log_context=f"promoted concept source_id={source_id} highlight_id={highlight.id}",
     )
     if error is not None:

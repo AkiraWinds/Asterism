@@ -30,7 +30,7 @@ from app.providers.base import (
     ProviderTimeoutError,
 )
 from app.providers.factory import build_provider
-from app.repositories.config_repository import ConfigError, load_config, load_embeddings_api_key
+from app.repositories.config_repository import ConfigError, load_brave_api_key, load_config, load_embeddings_api_key
 from app.repositories.source_repository import (
     append_chat_turn,
     append_highlight,
@@ -226,9 +226,10 @@ def analyze_source_endpoint(source_id: str):
         # gets stranded looking like "still Processing" (status is inferred
         # from file existence, not stored).
         try:
-            llm_provider, embeddings_api_key = _load_llm_and_embeddings(data_root)
+            llm_provider, embeddings_api_key, brave_api_key = _load_llm_and_embeddings(data_root)
             _, _, _, concept_graph_error = process_source_concepts(
-                data_root, source_id, result.digest.concepts, llm_provider, embeddings_api_key
+                data_root, source_id, result.digest.concepts, llm_provider, embeddings_api_key,
+                brave_api_key=brave_api_key,
             )
             result.concept_graph_error = concept_graph_error
         except Exception as exc:
@@ -325,10 +326,11 @@ def get_highlights_endpoint(source_id: str) -> HighlightHistory:
 
 
 def _load_llm_and_embeddings(data_root):
-    """Returns (provider, embeddings_api_key) or raises ConfigError."""
+    """Returns (provider, embeddings_api_key, brave_api_key) or raises ConfigError."""
     config = load_config(data_root)
     embeddings_api_key = load_embeddings_api_key(data_root)
-    return build_provider(config, data_root), embeddings_api_key
+    brave_api_key = load_brave_api_key(data_root)
+    return build_provider(config, data_root), embeddings_api_key, brave_api_key
 
 
 @router.post("/{source_id}/highlights", response_model=HighlightProcessResult)
@@ -360,11 +362,11 @@ def post_highlight_endpoint(source_id: str, payload: HighlightCreateRequest):
     append_highlight(data_root, source_id, highlight)
 
     try:
-        llm_provider, embeddings_api_key = _load_llm_and_embeddings(data_root)
+        llm_provider, embeddings_api_key, brave_api_key = _load_llm_and_embeddings(data_root)
     except ConfigError as exc:
         return HighlightProcessResult(highlight=highlight, extraction_error=str(exc))
 
-    return process_highlight(data_root, source_id, highlight, llm_provider, embeddings_api_key)
+    return process_highlight(data_root, source_id, highlight, llm_provider, embeddings_api_key, brave_api_key=brave_api_key)
 
 
 @router.patch("/{source_id}/highlights/{highlight_id}", response_model=HighlightProcessResult)
@@ -389,11 +391,11 @@ def patch_highlight_endpoint(source_id: str, highlight_id: str, payload: Highlig
     delete_concept_highlights_for_highlight(db_path, highlight_id)
 
     try:
-        llm_provider, embeddings_api_key = _load_llm_and_embeddings(data_root)
+        llm_provider, embeddings_api_key, brave_api_key = _load_llm_and_embeddings(data_root)
     except ConfigError as exc:
         return HighlightProcessResult(highlight=updated, extraction_error=str(exc))
 
-    return process_highlight(data_root, source_id, updated, llm_provider, embeddings_api_key)
+    return process_highlight(data_root, source_id, updated, llm_provider, embeddings_api_key, brave_api_key=brave_api_key)
 
 
 @router.get("/{source_id}/feedback", response_model=FeedbackHistory)
@@ -460,16 +462,20 @@ def promote_feedback_endpoint(source_id: str, feedback_id: str):
     # fails" precedent. Promoting is a one-way user action; a downstream
     # provider hiccup shouldn't leave the button re-offering "promote" forever.
     try:
-        llm_provider, embeddings_api_key = _load_llm_and_embeddings(data_root)
+        llm_provider, embeddings_api_key, brave_api_key = _load_llm_and_embeddings(data_root)
     except ConfigError as exc:
         mark_feedback_promoted(data_root, source_id, feedback_id)
         return HighlightProcessResult(highlight=highlight, extraction_error=str(exc))
 
     if entry.kind == "concept":
         concept = Concept(id="promoted", term=entry.term, definition=entry.content)
-        result = promote_concept(data_root, source_id, highlight, concept, llm_provider, embeddings_api_key)
+        result = promote_concept(
+            data_root, source_id, highlight, concept, llm_provider, embeddings_api_key, brave_api_key=brave_api_key
+        )
     else:
-        result = process_highlight(data_root, source_id, highlight, llm_provider, embeddings_api_key)
+        result = process_highlight(
+            data_root, source_id, highlight, llm_provider, embeddings_api_key, brave_api_key=brave_api_key
+        )
 
     mark_feedback_promoted(data_root, source_id, feedback_id)
     return result
