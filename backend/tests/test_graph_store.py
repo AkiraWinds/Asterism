@@ -22,6 +22,7 @@ from app.graph_store.store import (
     nearest_neighbors,
     repoint_concept_highlights,
     repoint_edges,
+    set_concept_golden,
 )
 
 
@@ -38,6 +39,44 @@ def test_insert_and_get_concept(tmp_path: Path):
     concept = get_concept(db_path, "c_1")
     assert concept["term"] == "RAG"
     assert concept["self_relevant"] == 0
+
+
+def test_insert_concept_defaults_golden_false(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
+    assert get_concept(db_path, "c_1")["golden"] is False
+
+
+def test_insert_concept_accepts_golden_true(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z", golden=True)
+    assert get_concept(db_path, "c_1")["golden"] is True
+
+
+def test_set_concept_golden_updates_existing_row(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
+    set_concept_golden(db_path, "c_1", True)
+    assert get_concept(db_path, "c_1")["golden"] is True
+
+
+def test_init_db_migrates_existing_concepts_table_without_golden_column(tmp_path: Path):
+    # Simulate a pre-migration graph.db: create the table by hand without `golden`.
+    db_path = graph_db_path(tmp_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE concepts (id TEXT PRIMARY KEY, term TEXT NOT NULL, definition TEXT NOT NULL, "
+        "embedding TEXT NOT NULL, self_relevant INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, "
+        "updated_at TEXT NOT NULL)"
+    )
+    conn.commit()
+    conn.close()
+
+    init_db(db_path)  # must not raise, and must add the column
+
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
+    assert get_concept(db_path, "c_1")["golden"] is False
 
 
 def test_list_concepts_returns_all(tmp_path: Path):

@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS concepts (
   definition TEXT NOT NULL,
   embedding TEXT NOT NULL,
   self_relevant INTEGER NOT NULL DEFAULT 0,
+  golden INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -87,18 +88,22 @@ def init_db(db_path: Path) -> None:
             conn.execute(
                 "ALTER TABLE review_queue ADD COLUMN proposed_edge_type TEXT NOT NULL DEFAULT 'related'"
             )
+        # Migration guard: concepts table golden column (added for watchlist feature).
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(concepts)")}
+        if "golden" not in cols:
+            conn.execute("ALTER TABLE concepts ADD COLUMN golden INTEGER NOT NULL DEFAULT 0")
         conn.commit()
 
 
 def insert_concept(
     db_path: Path, concept_id: str, term: str, definition: str, embedding: list[float],
-    self_relevant: bool, created_at: str,
+    self_relevant: bool, created_at: str, golden: bool = False,
 ) -> None:
     with _connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO concepts (id, term, definition, embedding, self_relevant, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (concept_id, term, definition, json.dumps(embedding), int(self_relevant), created_at, created_at),
+            "INSERT INTO concepts (id, term, definition, embedding, self_relevant, golden, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (concept_id, term, definition, json.dumps(embedding), int(self_relevant), int(golden), created_at, created_at),
         )
         conn.commit()
 
@@ -110,6 +115,7 @@ def _row_to_concept_dict(row: sqlite3.Row) -> dict:
         "definition": row["definition"],
         "embedding": json.loads(row["embedding"]),
         "self_relevant": row["self_relevant"],
+        "golden": bool(row["golden"]),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -132,6 +138,14 @@ def list_concepts(db_path: Path) -> list[dict]:
 def delete_concept(db_path: Path, concept_id: str) -> None:
     with _connect(db_path) as conn:
         conn.execute("DELETE FROM concepts WHERE id = ?", (concept_id,))
+        conn.commit()
+
+
+def set_concept_golden(db_path: Path, concept_id: str, golden: bool) -> None:
+    """Flip a concept's golden flag, e.g. when a watchlist entry resolves to
+    an existing concept rather than minting a new one (see app/watchlist/resolver.py)."""
+    with _connect(db_path) as conn:
+        conn.execute("UPDATE concepts SET golden = ? WHERE id = ?", (int(golden), concept_id))
         conn.commit()
 
 
