@@ -1,22 +1,22 @@
-# Contributing to Second Brain
+# Contributing to Asterism
 
 Thanks for your interest in contributing. This is a small, early-stage project — practical contributions of any size are welcome.
 
 ## Dev setup
 
-Follow the [Quick Start](README.md#quick-start) in the README (Node 20+, plus a signed-in `claude` or `codex` CLI). Then:
+Follow [Get started](README.md#get-started) in the README (Python 3.11+ with `uv`, Node 20+, plus a signed-in `claude`/`codex` CLI or an API key). Then, in separate terminals:
 
 ```bash
-npm install
-npm run dev     # app at http://localhost:3000
+cd backend && uv run uvicorn app.main:app --reload --port 8000
+cd frontend && npm run dev     # app at http://localhost:3000
 ```
 
 ## Before you open a PR
 
 ```bash
-npm test        # vitest — must pass
-npm run lint    # eslint — no errors
-npm run build   # next build — must succeed
+cd backend && uv run pytest    # backend tests — must pass
+cd frontend && npm run lint    # eslint — no errors
+cd frontend && npm run build   # next build — must succeed
 ```
 
 - Keep changes focused: one fix or feature per PR.
