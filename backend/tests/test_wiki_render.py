@@ -1,6 +1,7 @@
 from app.wiki.render import (
     extract_body, parse_wiki_page_frontmatter, render_wiki_page,
     render_related_section, render_sources_section, render_index, render_log_entry,
+    render_aspect_page,
 )
 
 
@@ -140,3 +141,63 @@ def test_render_log_entry_ends_with_blank_line_so_appended_entries_stay_separate
     appended = first + second
 
     assert "\n\n## [2026-08-01]" in appended
+
+
+def test_render_wiki_page_includes_aspects_frontmatter_when_provided():
+    text = render_wiki_page(
+        concept_id="c_1", term="RAG", updated_at="2026-08-01T00:00:00Z",
+        source_highlight_count=12, source_provenance_hash="abc",
+        source_ids=["s_1"], body="Overview prose.",
+        related_section="", sources_section="",
+        aspects=["rag-retrieval-strategies", "rag-evaluation"],
+    )
+    frontmatter = parse_wiki_page_frontmatter(text)
+    assert frontmatter["aspects"] == ["rag-retrieval-strategies", "rag-evaluation"]
+
+
+def test_render_wiki_page_omits_aspects_frontmatter_when_not_split():
+    text = render_wiki_page(
+        concept_id="c_1", term="RAG", updated_at="2026-08-01T00:00:00Z",
+        source_highlight_count=3, source_provenance_hash="abc",
+        source_ids=["s_1"], body="Single page.", related_section="", sources_section="",
+    )
+    assert "aspects" not in parse_wiki_page_frontmatter(text)
+
+
+def test_render_aspect_page_roundtrips_through_parse_frontmatter():
+    text = render_aspect_page(
+        concept_id="c_1", term="Evaluation", aspect_of="rag",
+        updated_at="2026-08-01T00:00:00Z", source_ids=["s_1", "s_2"], body="Evaluation prose.",
+    )
+    frontmatter = parse_wiki_page_frontmatter(text)
+    assert frontmatter == {
+        "concept_id": "c_1", "term": "Evaluation", "aspect_of": "rag",
+        "updated_at": "2026-08-01T00:00:00Z", "source_ids": ["s_1", "s_2"],
+    }
+    assert "Evaluation prose." in extract_body(text)
+
+
+def test_render_index_nests_aspect_pages_under_their_overview():
+    pages = [{
+        "term": "RAG", "slug": "rag", "definition": "def.",
+        "source_highlight_count": 12, "updated_at": "2026-08-01T00:00:00Z",
+        "aspect_pages": [
+            {"term": "Retrieval Strategies", "slug": "rag-retrieval-strategies"},
+            {"term": "Evaluation", "slug": "rag-evaluation"},
+        ],
+    }]
+    index = render_index(pages, [])
+    lines = index.splitlines()
+    rag_line_idx = next(i for i, l in enumerate(lines) if l.startswith("- [RAG]"))
+    assert lines[rag_line_idx + 1] == "  - [Retrieval Strategies](rag-retrieval-strategies.md)"
+    assert lines[rag_line_idx + 2] == "  - [Evaluation](rag-evaluation.md)"
+
+
+def test_render_index_unsplit_concept_has_no_nested_lines():
+    pages = [{
+        "term": "Vector Search", "slug": "vector-search", "definition": "def.",
+        "source_highlight_count": 4, "updated_at": "2026-08-01T00:00:00Z",
+        "aspect_pages": [],
+    }]
+    index = render_index(pages, [])
+    assert "  - [" not in index
