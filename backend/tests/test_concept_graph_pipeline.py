@@ -693,3 +693,105 @@ def test_new_concept_keeps_extraction_definition_when_web_search_returns_nothing
     assert result.extraction_error is None
     assert len(result.concepts) == 1
     assert result.concepts[0].definition == "AI processes first."
+
+
+def test_grounded_concept_persists_embedding_computed_from_grounded_definition(tmp_path, monkeypatch):
+    # Whole-branch review finding #1: `embedding = embed_text(..., item["definition"])`
+    # ran on the pre-grounding definition, but the concept got persisted with
+    # the GROUNDED definition alongside that stale embedding — desyncing
+    # nearest_neighbors matching for every grounded concept. Guard against
+    # regression by using an embed_text stub whose output depends on its
+    # input text, so a mismatch between persisted definition and persisted
+    # embedding is detectable.
+    def fake_embed_text(api_key, text):
+        return [float(len(text)), 0.0]
+
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", fake_embed_text)
+    monkeypatch.setattr(
+        "app.concept_graph.pipeline.search_web",
+        lambda api_key, query, count=3: [
+            {"title": "AI-first triage", "url": "https://example.com/ai-first-triage",
+             "description": "A grounded, real-world description of AI-first triage."}
+        ],
+    )
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"term": "AI-first triage", "definition": "AI processes first.", "self_relevant": False}
+    ])
+
+    result = process_highlight(
+        tmp_path, "source_a", _make_highlight(), provider, "sk-embed", brave_api_key="sk-brave",
+    )
+
+    from app.graph_store.store import get_concept
+    db_path = graph_db_path(tmp_path)
+    stored = get_concept(db_path, result.concepts[0].id)
+    grounded_definition = stored["definition"]
+    assert "grounded, real-world description" in grounded_definition
+
+    expected_embedding = fake_embed_text("sk-embed", grounded_definition)
+    assert stored["embedding"] == expected_embedding
+    # The bug this guards against: persisting the embedding computed from
+    # the ORIGINAL pre-grounding definition instead.
+    assert stored["embedding"] != fake_embed_text("sk-embed", "AI processes first.")
+
+
+def test_self_relevant_new_concept_skips_web_search_grounding(tmp_path, monkeypatch):
+    # Human decision: self_relevant concepts describe the user's OWN
+    # project/work, so grounding them via web search risks replacing a
+    # correct extraction-time definition with an unrelated one (e.g.
+    # "Asterism" the project vs. the star cluster).
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    search_web_mock = MagicMock(return_value=[
+        {"title": "t", "url": "https://example.com", "description": "unrelated grounded description"}
+    ])
+    monkeypatch.setattr("app.concept_graph.pipeline.search_web", search_web_mock)
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"term": "Asterism", "definition": "The user's own knowledge-management project.", "self_relevant": True}
+    ])
+
+    result = process_highlight(
+        tmp_path, "source_a", _make_highlight(), provider, "sk-embed", brave_api_key="sk-brave",
+    )
+
+    assert result.extraction_error is None
+    assert len(result.concepts) == 1
+    assert result.concepts[0].definition == "The user's own knowledge-management project."
+    search_web_mock.assert_not_called()
+
+
+def test_related_distinct_new_concept_is_grounded_via_web_search(tmp_path, monkeypatch):
+    # Whole-branch review finding #7: grounding was applied on the
+    # "no neighbors" and judgment == "new" branches but NOT on
+    # judgment == "related_distinct", even though that branch also creates a
+    # brand-new concept per the design doc.
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "Local-first storage", "Filesystem is source of truth.", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.21])
+    monkeypatch.setattr(
+        "app.concept_graph.pipeline.search_web",
+        lambda api_key, query, count=3: [
+            {"title": "t", "url": "https://example.com/original-vs-derived",
+             "description": "A grounded description of original vs derived data."}
+        ],
+    )
+    provider = MagicMock()
+    provider.complete.side_effect = [
+        json.dumps([{"term": "Original vs. derived data model", "definition": "def", "self_relevant": False}]),
+        json.dumps([{"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "high",
+                      "relationship": "extends", "summary": "related, note confirms"}]),
+    ]
+
+    result = process_highlight(
+        tmp_path, "source_a", _make_highlight(note="same idea but more specific"), provider, "sk-embed",
+        brave_api_key="sk-brave",
+    )
+
+    assert result.extraction_error is None
+    assert len(result.concepts) == 1
+    assert "grounded description of original vs derived data" in result.concepts[0].definition
+    assert result.concepts[0].definition != "def"

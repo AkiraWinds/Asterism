@@ -21,11 +21,15 @@ from app.providers.base import Provider, ProviderError
 from app.providers.embeddings import embed_text
 from app.search.brave import search_web
 
-# Cosine similarity (before the golden bonus, since a fresh watchlist term
-# has no existing concept of its own to compare against — see
-# graph_store/store.py's nearest_neighbors) above which a watchlist term is
-# treated as already covered by an existing concept, rather than needing a
-# fresh draft. Deliberately a fixed threshold rather than another LLM-judged
+# True cosine similarity (nearest_neighbors' true_similarity, NOT its
+# golden-boosted ranking score — see graph_store/store.py's nearest_neighbors)
+# above which a watchlist term is treated as already covered by an existing
+# concept, rather than needing a fresh draft. Comparing against the boosted
+# score here would let a golden concept's +0.05 tie-breaker bonus (meant only
+# to break ties in ranking) push a term across this absolute cutoff on true
+# similarity alone — e.g. a golden concept at true similarity 0.81 must NOT
+# count as a match just because boosting puts it at 0.86. Deliberately a
+# fixed threshold rather than another LLM-judged
 # dedup call — proportionate to this being a low-frequency, user-reviewed
 # action (you approve/reject the outcome either way), not the
 # every-highlight extraction hot path that justifies the fuller LLM-judgment
@@ -49,10 +53,11 @@ def resolve_watchlist_entry(
     term_embedding = embed_text(embeddings_api_key, entry["term"])
     neighbors = nearest_neighbors(db_path, term_embedding, top_k=1)
 
-    # Graph match: nearest neighbor clears the threshold, so treat the term
-    # as already covered by an existing concept rather than drafting a new one.
+    # Graph match: nearest neighbor's TRUE similarity clears the threshold,
+    # so treat the term as already covered by an existing concept rather
+    # than drafting a new one.
     if neighbors and neighbors[0][1] >= _MATCH_THRESHOLD:
-        matched_concept, _ = neighbors[0]
+        matched_concept, _true_similarity, _boosted_score = neighbors[0]
         update_watchlist_entry(
             db_path, entry_id, draft_matched_concept_id=matched_concept["id"], draft_definition=None,
             updated_at=_now_iso(),
@@ -67,8 +72,9 @@ def resolve_watchlist_entry(
             # Web search unavailable (auth failure, rate limit, network error) —
             # fall through to LLM reasoning rather than surfacing a raw error.
             results = []
-        if results and results[0]["description"]:
-            draft_definition = f"{results[0]['description']} (source: {results[0]['url']})"
+        top_description = results[0].get("description", "") if results else ""
+        if top_description:
+            draft_definition = f"{top_description} (source: {results[0]['url']})"
 
     if draft_definition is None:
         draft_definition = llm_provider.complete(

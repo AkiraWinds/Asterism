@@ -291,21 +291,31 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-def nearest_neighbors(db_path: Path, embedding: list[float], top_k: int = 3) -> list[tuple[dict, float]]:
+def nearest_neighbors(db_path: Path, embedding: list[float], top_k: int = 3) -> list[tuple[dict, float, float]]:
     """Brute-force cosine similarity over every stored concept. Fine at
     personal-library scale; revisit with a real vector index only if this
     becomes a measured bottleneck (see design doc's Out of Scope). Golden
     concepts (user-approved via the watchlist) get a small fixed bonus so
     they win ties against near-duplicate non-golden matches, without letting
-    a barely-related golden concept outrank a genuinely close match."""
+    a barely-related golden concept outrank a genuinely close match.
+
+    Returns (concept, true_similarity, boosted_score) triples, ranked by
+    boosted_score (descending) — true_similarity is the plain cosine value
+    with no golden bonus applied. Callers that only need ranking (e.g. the
+    dedup pipeline's neighbor list) can ignore true_similarity; callers doing
+    an absolute-threshold comparison (e.g. the watchlist resolver) must use
+    true_similarity, not boosted_score, or the golden tie-breaker leaks into
+    what's meant to be a fixed cutoff (see whole-branch review finding #3)."""
     candidates = list_concepts(db_path)
     # Add small bonus to golden concepts to break ties in deduplication without
-    # letting unrelated golden concepts outrank close non-golden matches.
+    # letting unrelated golden concepts outrank close non-golden matches. The
+    # bonus affects ranking order only — the true similarity is preserved
+    # alongside it for callers that need an unboosted value.
     scored = [
-        (c, _cosine_similarity(embedding, c["embedding"]) + (_GOLDEN_BONUS if c["golden"] else 0.0))
+        (c, _cosine_similarity(embedding, c["embedding"]), _cosine_similarity(embedding, c["embedding"]) + (_GOLDEN_BONUS if c["golden"] else 0.0))
         for c in candidates
     ]
-    scored.sort(key=lambda pair: pair[1], reverse=True)
+    scored.sort(key=lambda triple: triple[2], reverse=True)
     return scored[:top_k]
 
 
@@ -349,7 +359,7 @@ def list_watchlist_entries(db_path: Path) -> list[dict]:
     """Return all watchlist entries, most recently updated first."""
     with _connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT * FROM watchlist").fetchall()
+        rows = conn.execute("SELECT * FROM watchlist ORDER BY updated_at DESC").fetchall()
         return [_row_to_watchlist_dict(r) for r in rows]
 
 

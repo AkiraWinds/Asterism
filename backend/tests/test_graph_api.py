@@ -39,6 +39,26 @@ def test_get_graph_returns_concepts_and_edges(tmp_path: Path, monkeypatch):
     assert body["nodes"][0]["id"] == "c_1"
 
 
+def test_get_graph_returns_golden_true_for_golden_concept(tmp_path: Path, monkeypatch):
+    # Whole-branch review finding #2: ConceptNode gained a `golden` field,
+    # and _row_to_concept_dict correctly reads it from the DB, but the
+    # GET /graph endpoint's ConceptNode(...) construction never passed
+    # `golden=` through — so the API always reported golden=False regardless
+    # of the DB value.
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z", golden=True)
+    insert_concept(db_path, "c_2", "Other", "def", [0.2], False, "2026-07-30T00:00:01Z", golden=False)
+
+    response = client.get("/graph")
+
+    assert response.status_code == 200
+    nodes_by_id = {n["id"]: n for n in response.json()["nodes"]}
+    assert nodes_by_id["c_1"]["golden"] is True
+    assert nodes_by_id["c_2"]["golden"] is False
+
+
 def test_get_review_queue_lists_pending_entries(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
     db_path = graph_db_path(tmp_path)

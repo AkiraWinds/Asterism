@@ -115,6 +115,13 @@ def approve_watchlist_endpoint(entry_id: str) -> WatchlistEntry:
     if entry is None:
         raise HTTPException(status_code=404, detail="Watchlist entry not found")
 
+    # Idempotent no-op: approving an already-resolved entry a second time
+    # must not mint a second golden concept and overwrite resolved_concept_id,
+    # which would orphan the first concept in the graph with nothing
+    # referencing it (see whole-branch review finding #4).
+    if entry["status"] == "resolved":
+        return WatchlistEntry(**entry)
+
     # draft_matched_concept_id and draft_definition are mutually exclusive
     # (per the resolver's write pattern in app/watchlist/resolver.py): a
     # graph match sets the former and clears the latter, a fresh draft does

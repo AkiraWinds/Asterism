@@ -27,7 +27,7 @@ def search_web(api_key: str, query: str, count: int = 3) -> list[dict]:
             timeout=10.0,
         )
     except httpx.HTTPError as exc:
-        raise ProviderError(f"Brave Search request failed: {exc}")
+        raise ProviderError(f"Brave Search request failed: {exc}") from exc
 
     if response.status_code != 200:
         raise ProviderError(f"Brave Search API error: {response.status_code} {response.text[:200]}")

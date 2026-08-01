@@ -2,6 +2,8 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from app.graph_store.store import (
     delete_concept,
     delete_concept_highlights_for_highlight,
@@ -205,7 +207,9 @@ def test_nearest_neighbors_ranks_by_cosine_similarity(tmp_path: Path):
     results = nearest_neighbors(db_path, [1.0, 0.01], top_k=2)
 
     assert results[0][0]["id"] == "c_close"
+    # [1] is true_similarity, [2] is the golden-boosted ranking score.
     assert results[0][1] > results[1][1]
+    assert results[0][2] > results[1][2]
 
 
 def test_nearest_neighbors_ranks_golden_above_similar_non_golden(tmp_path: Path):
@@ -228,6 +232,24 @@ def test_nearest_neighbors_true_similarity_gap_beats_golden_bonus(tmp_path: Path
     results = nearest_neighbors(db_path, [1.0, 0.0], top_k=2)
 
     assert results[0][0]["id"] == "c_1"
+
+
+def test_nearest_neighbors_true_similarity_excludes_golden_bonus(tmp_path: Path):
+    # Whole-branch review finding #3: nearest_neighbors must expose the
+    # UNBOOSTED cosine similarity (index [1]) separately from the ranking
+    # score (index [2]) so callers doing an absolute-threshold comparison
+    # (e.g. the watchlist resolver) don't have the golden tie-breaker bonus
+    # leak into that threshold.
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_golden", "A", "def1", [1.0, 0.0], False, "2026-08-01T00:00:00Z", golden=True)
+
+    results = nearest_neighbors(db_path, [1.0, 0.0], top_k=1)
+
+    concept, true_similarity, boosted_score = results[0]
+    assert concept["id"] == "c_golden"
+    assert true_similarity == pytest.approx(1.0)
+    assert boosted_score == pytest.approx(1.0 + 0.05)
+    assert boosted_score != true_similarity
 
 
 def test_link_concept_source_creates_provenance_row(tmp_path: Path):
@@ -272,6 +294,20 @@ def test_list_watchlist_entries_returns_all(tmp_path: Path):
     insert_watchlist_entry(db_path, "w_1", "Agentic AI", "2026-08-01T00:00:00Z")
     insert_watchlist_entry(db_path, "w_2", "Multi-agent systems", "2026-08-01T00:00:01Z")
     assert {e["id"] for e in list_watchlist_entries(db_path)} == {"w_1", "w_2"}
+
+
+def test_list_watchlist_entries_orders_most_recently_updated_first(tmp_path: Path):
+    # Docstring claims "most recently updated first" — the query previously
+    # had no ORDER BY, so that was only true by accident of insertion order.
+    db_path = _new_db(tmp_path)
+    insert_watchlist_entry(db_path, "w_1", "Agentic AI", "2026-08-01T00:00:00Z")
+    insert_watchlist_entry(db_path, "w_2", "Multi-agent systems", "2026-08-01T00:00:01Z")
+    # Touch w_1 after w_2 was created, so it should now sort first.
+    update_watchlist_entry(db_path, "w_1", status="rejected", updated_at="2026-08-01T00:00:02Z")
+
+    result = list_watchlist_entries(db_path)
+
+    assert [e["id"] for e in result] == ["w_1", "w_2"]
 
 
 def test_update_watchlist_entry_sets_fields_and_bumps_updated_at(tmp_path: Path):

@@ -62,3 +62,19 @@ def test_search_web_raises_provider_error_on_connection_error(monkeypatch):
 
     with pytest.raises(ProviderError):
         search_web("fake-key", "Agentic AI")
+
+
+def test_search_web_network_error_preserves_exception_chain(monkeypatch):
+    # `raise ProviderError(...) from exc` must keep the original httpx error
+    # attached as __cause__, otherwise the underlying traceback (why the
+    # request actually failed — timeout vs. DNS vs. refused, etc.) is lost.
+    original = httpx.ConnectError("connection refused")
+
+    def fake_get(url, headers=None, params=None, timeout=None):
+        raise original
+    monkeypatch.setattr(httpx, "get", fake_get)
+
+    with pytest.raises(ProviderError) as exc_info:
+        search_web("fake-key", "Agentic AI")
+
+    assert exc_info.value.__cause__ is original

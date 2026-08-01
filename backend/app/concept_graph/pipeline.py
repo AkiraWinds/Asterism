@@ -155,8 +155,29 @@ def _dedupe_and_insert(
         if not results:
             return item
         top = results[0]
-        grounded_definition = f"{top['description']} (source: {top['url']})" if top["description"] else item["definition"]
+        description = top.get("description", "")
+        grounded_definition = f"{description} (source: {top['url']})" if description else item["definition"]
         return {**item, "definition": grounded_definition}
+
+    def _create_new_concept(item: dict, base_embedding: list[float]) -> ConceptNode:
+        """Shared path for all three "this is a brand-new concept" branches
+        below (no neighbors / judgment == "new" / judgment ==
+        "related_distinct"). Grounding is skipped for self_relevant items
+        (per human decision: a highlight about the user's own project
+        shouldn't get web-search-grounded into an unrelated definition —
+        e.g. "Asterism" the project vs. the star cluster). Otherwise, ground
+        first and then recompute the embedding from the grounded definition
+        text — base_embedding was computed from the pre-grounding definition
+        for the neighbor search, and persisting it alongside a grounded
+        definition would desync `nearest_neighbors` matching for every
+        grounded concept (see whole-branch review finding #1)."""
+        if item.get("self_relevant"):
+            return _create_concept(item, base_embedding)
+        grounded = _ground_via_web_search(item)
+        if grounded["definition"] == item["definition"]:
+            return _create_concept(grounded, base_embedding)
+        grounded_embedding = embed_text(embeddings_api_key, grounded["definition"])
+        return _create_concept(grounded, grounded_embedding)
 
     try:
         for item in items:
@@ -164,10 +185,10 @@ def _dedupe_and_insert(
             neighbors = nearest_neighbors(db_path, embedding, top_k=3)
 
             if not neighbors:
-                created_concepts.append(_create_concept(_ground_via_web_search(item), embedding))
+                created_concepts.append(_create_new_concept(item, embedding))
                 continue
 
-            neighbor_payload = [{"id": c["id"], "term": c["term"], "definition": c["definition"]} for c, _ in neighbors]
+            neighbor_payload = [{"id": c["id"], "term": c["term"], "definition": c["definition"]} for c, _, _ in neighbors]
             judgments = _complete_with_retry(
                 llm_provider, build_dedup_prompt(item["term"], item["definition"], note, neighbor_payload), parse_dedup_response,
             )
@@ -188,11 +209,14 @@ def _dedupe_and_insert(
                 continue
 
             if best["judgment"] == "new":
-                created_concepts.append(_create_concept(_ground_via_web_search(item), embedding))
+                created_concepts.append(_create_new_concept(item, embedding))
                 continue
 
-            # judgment == "related_distinct"
-            concept_node = _create_concept(item, embedding)
+            # judgment == "related_distinct" — also a brand-new concept (per
+            # design doc: "no match — term looks genuinely new"), so it must
+            # go through the same grounding/self_relevant-skip path as the
+            # other two new-concept branches above.
+            concept_node = _create_new_concept(item, embedding)
             created_concepts.append(concept_node)
 
             edge_type = _RELATIONSHIP_TO_EDGE_TYPE.get(best["relationship"], "related")

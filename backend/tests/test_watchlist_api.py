@@ -153,6 +153,27 @@ def test_patch_watchlist_entry_flips_resolved_back_to_pending(tmp_path: Path, mo
     assert body["resolved_concept_id"] is None
 
 
+def test_approve_watchlist_entry_is_idempotent_and_does_not_orphan_concept(tmp_path: Path, monkeypatch):
+    # Whole-branch review finding #4: approving an already-resolved entry a
+    # second time must not mint a second golden concept and overwrite
+    # resolved_concept_id, which would orphan the first concept in the graph.
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    _write_config(tmp_path)
+    monkeypatch.setattr("app.routers.watchlist.embed_text", lambda api_key, text: [0.0, 1.0])
+    monkeypatch.setattr("app.watchlist.resolver.embed_text", lambda api_key, text: [0.0, 1.0])
+    monkeypatch.setattr("app.routers.watchlist.build_provider", lambda config, data_root: _StubProvider("A drafted definition."))
+    created = client.post("/watchlist", json={"term": "Some new term"}).json()
+
+    first = client.post(f"/watchlist/{created['id']}/approve").json()
+    second = client.post(f"/watchlist/{created['id']}/approve").json()
+
+    assert first["status"] == "resolved"
+    assert second["status"] == "resolved"
+    assert second["resolved_concept_id"] == first["resolved_concept_id"]
+    from app.graph_store.store import list_concepts
+    assert len(list_concepts(graph_db_path(tmp_path))) == 1
+
+
 def test_reject_watchlist_entry_marks_rejected_without_creating_concept(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
     _write_config(tmp_path)
