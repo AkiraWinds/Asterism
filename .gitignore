@@ -94,3 +94,20 @@ docs/superpowers
 
 # git worktrees for isolated implementation work
 /.worktrees/
+
+# Legacy inherited Next.js/Tauri monolith — frozen 2026-08-01, superseded by
+# backend/+frontend/. Kept on disk for reference, no longer tracked in git.
+# See docs/superpowers/specs/2026-08-01-legacy-freeze-decision-design.md.
+/src/
+/src-tauri/
+/extension/
+/public/
+/scripts/
+/tests/
+/package.json
+/package-lock.json
+/next.config.ts
+/tsconfig.json
+/vitest.config.ts
+/eslint.config.mjs
+/postcss.config.mjs
