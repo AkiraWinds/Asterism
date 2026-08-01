@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { AnalysisResult } from "@/lib/api";
 import { DigestView } from "./DigestView";
 import { CritiqueView } from "./CritiqueView";
@@ -51,9 +53,9 @@ export function AnalysisTabs({
 
       <div className="mt-4">
         {active === "original" && (
-          <pre className="whitespace-pre-wrap rounded-lg border border-neutral-200 bg-white p-5 text-sm leading-relaxed text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200">
-            {content}
-          </pre>
+          <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none rounded-lg border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
         )}
         {active === "digest" && (
           <DigestView

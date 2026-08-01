@@ -41,6 +41,25 @@ def test_get_missing_source_returns_404(tmp_path: Path, monkeypatch):
     assert response.status_code == 404
 
 
+def test_delete_source_removes_it(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+
+    created = client.post("/sources", json={"title": "To Delete", "content": "Body"}).json()
+
+    delete_response = client.delete(f"/sources/{created['id']}")
+    assert delete_response.status_code == 204
+
+    get_response = client.get(f"/sources/{created['id']}")
+    assert get_response.status_code == 404
+
+
+def test_delete_missing_source_returns_404(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+
+    response = client.delete("/sources/does-not-exist")
+    assert response.status_code == 404
+
+
 def test_create_source_from_url_success(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
     monkeypatch.setattr(

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.schemas.analysis import AnalysisResult
-from app.schemas.chat import ChatHistory, ChatTurn
+from app.schemas.chat import ChatHistory, ChatTurn, Conversation
 from app.schemas.feedback import FeedbackEntry, FeedbackHistory
 from app.schemas.highlight import Highlight, HighlightHistory
 
@@ -121,6 +121,24 @@ def get_source(data_root: Path, source_id: str) -> SourceRecord | None:
     )
 
 
+def delete_source(data_root: Path, source_id: str) -> bool:
+    """Delete a source's entire directory. Returns False (no-op) if the source
+    doesn't exist or source_id resolves outside library_dir."""
+    library_dir = data_root / "library"
+    source_dir = library_dir / source_id
+
+    resolved_source_dir = source_dir.resolve()
+    resolved_library_dir = library_dir.resolve()
+    if not resolved_source_dir.is_relative_to(resolved_library_dir):
+        return False
+
+    if not (source_dir / "meta.json").exists():
+        return False
+
+    shutil.rmtree(source_dir)
+    return True
+
+
 def write_analysis(data_root: Path, source_id: str, result: AnalysisResult) -> None:
     """Write an AnalysisResult to analysis.json in the source directory."""
     source_dir = data_root / "library" / source_id
@@ -185,20 +203,102 @@ def list_analysis_claims(data_root: Path, source_ids: list[str]) -> list[dict]:
     return results
 
 
-def append_chat_turn(data_root: Path, source_id: str, turn: ChatTurn) -> None:
-    """Append one turn to chat.json, creating the file if it doesn't exist yet."""
-    chat_path = data_root / "library" / source_id / "chat.json"
-    history = read_chat(data_root, source_id)
-    history.turns.append(turn)
-    chat_path.write_text(history.model_dump_json(indent=2))
+def _chat_dir(data_root: Path, source_id: str) -> Path:
+    return data_root / "library" / source_id / "chat"
 
 
-def read_chat(data_root: Path, source_id: str) -> ChatHistory:
-    """Read chat.json if it exists, else return an empty ChatHistory."""
-    chat_path = data_root / "library" / source_id / "chat.json"
-    if not chat_path.exists():
-        return ChatHistory()
-    return ChatHistory.model_validate_json(chat_path.read_text())
+def _conversation_path(data_root: Path, source_id: str, conversation_id: str) -> Path | None:
+    """Resolve a conversation's file path, guarding against a conversation_id
+    that escapes the chat directory (same pattern as get_source's library_dir
+    guard)."""
+    chat_dir = _chat_dir(data_root, source_id)
+    path = chat_dir / f"{conversation_id}.json"
+    if not path.resolve().is_relative_to(chat_dir.resolve()):
+        return None
+    return path
+
+
+def _migrate_legacy_chat_if_needed(data_root: Path, source_id: str) -> None:
+    """One-time migration from the old single library/{id}/chat.json into the
+    new library/{id}/chat/{conversation_id}.json layout, run lazily on first
+    access rather than at startup. Safe to call repeatedly — a no-op once the
+    chat/ directory exists."""
+    source_dir = data_root / "library" / source_id
+    chat_dir = _chat_dir(data_root, source_id)
+    legacy_path = source_dir / "chat.json"
+    if chat_dir.exists():
+        return
+
+    chat_dir.mkdir(parents=True, exist_ok=True)
+    if not legacy_path.exists():
+        return
+
+    history = ChatHistory.model_validate_json(legacy_path.read_text())
+    now = datetime.now(timezone.utc).isoformat()
+    conversation = Conversation(
+        id=f"conv_{uuid.uuid4().hex[:10]}",
+        title="Chat 1",
+        created_at=history.turns[0].created_at if history.turns else now,
+        updated_at=now,
+        turns=history.turns,
+    )
+    (chat_dir / f"{conversation.id}.json").write_text(conversation.model_dump_json(indent=2))
+    legacy_path.unlink()
+
+
+def list_conversations(data_root: Path, source_id: str) -> list[Conversation]:
+    """List all chat conversations for a source, oldest first. A source
+    always has at least one — if none exist yet (brand new source, or all
+    were deleted), one is created automatically."""
+    _migrate_legacy_chat_if_needed(data_root, source_id)
+    chat_dir = _chat_dir(data_root, source_id)
+    conversations = [Conversation.model_validate_json(f.read_text()) for f in chat_dir.glob("*.json")]
+    conversations.sort(key=lambda c: c.created_at)
+    if not conversations:
+        conversations = [create_conversation(data_root, source_id, title="Chat 1")]
+    return conversations
+
+
+def create_conversation(data_root: Path, source_id: str, title: str | None = None) -> Conversation:
+    _migrate_legacy_chat_if_needed(data_root, source_id)
+    chat_dir = _chat_dir(data_root, source_id)
+    existing_count = len(list(chat_dir.glob("*.json")))
+    now = datetime.now(timezone.utc).isoformat()
+    conversation = Conversation(
+        id=f"conv_{uuid.uuid4().hex[:10]}",
+        title=title or f"Chat {existing_count + 1}",
+        created_at=now,
+        updated_at=now,
+        turns=[],
+    )
+    (chat_dir / f"{conversation.id}.json").write_text(conversation.model_dump_json(indent=2))
+    return conversation
+
+
+def read_conversation(data_root: Path, source_id: str, conversation_id: str) -> Conversation | None:
+    _migrate_legacy_chat_if_needed(data_root, source_id)
+    path = _conversation_path(data_root, source_id, conversation_id)
+    if path is None or not path.exists():
+        return None
+    return Conversation.model_validate_json(path.read_text())
+
+
+def append_conversation_turn(data_root: Path, source_id: str, conversation_id: str, turn: ChatTurn) -> None:
+    conversation = read_conversation(data_root, source_id, conversation_id)
+    if conversation is None:
+        raise ValueError(f"Conversation {conversation_id} not found for source {source_id}")
+    conversation.turns.append(turn)
+    conversation.updated_at = datetime.now(timezone.utc).isoformat()
+    path = _conversation_path(data_root, source_id, conversation_id)
+    path.write_text(conversation.model_dump_json(indent=2))
+
+
+def delete_conversation(data_root: Path, source_id: str, conversation_id: str) -> bool:
+    path = _conversation_path(data_root, source_id, conversation_id)
+    if path is None or not path.exists():
+        return False
+    path.unlink()
+    return True
 
 
 def append_highlight(data_root: Path, source_id: str, highlight: Highlight) -> None:

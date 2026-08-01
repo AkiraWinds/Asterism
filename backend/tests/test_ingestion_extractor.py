@@ -9,6 +9,12 @@ def _rich_article_html() -> str:
     return f"<html><head><title>Rich Article</title></head><body><article><h1>A Real Article Title</h1><p>{paragraph}</p></article></body></html>"
 
 
+def _rich_article_html_with_link() -> str:
+    paragraph = " ".join(f"This is sentence number {i} in a long article body." for i in range(1, 40))
+    linked_sentence = 'As reported by <a href="https://example.com/source">the source</a>, this happened.'
+    return f"<html><head><title>Rich Article</title></head><body><article><h1>A Real Article Title</h1><p>{linked_sentence} {paragraph}</p></article></body></html>"
+
+
 def _thin_html() -> str:
     return "<html><head><title>Thin</title></head><body><p>Hi</p></body></html>"
 
@@ -19,6 +25,14 @@ def test_extract_content_uses_trafilatura_when_extraction_is_long_enough(tmp_pat
 
     assert "A Real Article Title" in result
     assert len(result) > 500
+    mock_build_provider.assert_not_called()
+
+
+def test_extract_content_preserves_inline_links(tmp_path: Path):
+    with patch("app.ingestion.extractor.build_provider") as mock_build_provider:
+        result = extract_content(_rich_article_html_with_link(), "https://example.com/rich", tmp_path)
+
+    assert "[the source](https://example.com/source)" in result
     mock_build_provider.assert_not_called()
 
 
