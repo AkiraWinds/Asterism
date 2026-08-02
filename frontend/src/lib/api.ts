@@ -368,3 +368,107 @@ export async function promoteFeedback(sourceId: string, feedbackId: string): Pro
   if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to promote to graph"));
   return res.json();
 }
+
+export interface FeedSource {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  last_fetched_at: string | null;
+  last_fetch_status: string | null;
+  last_fetch_error: string | null;
+  created_at: string;
+}
+
+export interface BoostTopic {
+  id: string;
+  term: string;
+  created_at: string;
+}
+
+export interface RadarItem {
+  id: string;
+  source_id: string;
+  url: string;
+  title: string;
+  summary: string;
+  published_at: string | null;
+  relevance_score: number;
+  quality_score: number;
+  reasoning: string;
+  status: string;
+  added_source_id: string | null;
+  created_at: string;
+}
+
+export interface RadarRefreshSummary {
+  per_source: Record<string, Record<string, unknown>>;
+}
+
+export async function listRadarItems(): Promise<RadarItem[]> {
+  const res = await fetch(`${BACKEND_URL}/radar`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to list radar items"));
+  const body = await res.json();
+  return body.items;
+}
+
+export async function refreshRadar(): Promise<RadarRefreshSummary> {
+  const res = await fetch(`${BACKEND_URL}/radar/refresh`, { method: "POST" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to refresh radar"));
+  return res.json();
+}
+
+export async function addRadarItem(id: string): Promise<{ id: string; title: string }> {
+  const res = await fetch(`${BACKEND_URL}/radar/items/${id}/add`, { method: "POST" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to add item"));
+  return res.json();
+}
+
+export async function dismissRadarItem(id: string): Promise<void> {
+  const res = await fetch(`${BACKEND_URL}/radar/items/${id}/dismiss`, { method: "POST" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to dismiss item"));
+}
+
+export async function listFeedSources(): Promise<FeedSource[]> {
+  const res = await fetch(`${BACKEND_URL}/radar/sources`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to list feed sources"));
+  const body = await res.json();
+  return body.sources;
+}
+
+export async function addFeedSource(name: string, url: string): Promise<FeedSource> {
+  const res = await fetch(`${BACKEND_URL}/radar/sources`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, url }),
+  });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to add feed source"));
+  return res.json();
+}
+
+export async function deleteFeedSource(id: string): Promise<void> {
+  const res = await fetch(`${BACKEND_URL}/radar/sources/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to delete feed source"));
+}
+
+export async function listBoostTopics(): Promise<BoostTopic[]> {
+  const res = await fetch(`${BACKEND_URL}/radar/boost-topics`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to list boost topics"));
+  const body = await res.json();
+  return body.topics;
+}
+
+export async function addBoostTopic(term: string): Promise<BoostTopic> {
+  const res = await fetch(`${BACKEND_URL}/radar/boost-topics`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ term }),
+  });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to add boost topic"));
+  return res.json();
+}
+
+export async function deleteBoostTopic(id: string): Promise<void> {
+  const res = await fetch(`${BACKEND_URL}/radar/boost-topics/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to delete boost topic"));
+}

@@ -72,6 +72,10 @@ Per-source streaming chat (SSE), with multiple named conversations per source an
 - **Per-point feedback** — thumbs up/down individual Digest concepts, Claims, or Critique points; a thumbs-up can be promoted straight into the graph.
 - **Wiki compile** — renders the graph into browsable markdown: one synthesized page per qualifying concept, a regenerated index, and an append-only change log. The graph stays the source of truth; wiki pages are a regenerable projection of it.
 
+### Radar — proactive content discovery
+
+A daily-refreshable feed of RSS-sourced recommendations, ranked by relevance (concept-graph embedding similarity + LLM judgment against your saved boost topics) and quality (judged from full article text, not a hardcoded per-source trust score) — kept as two separate scores, never averaged. One click adds an item straight into your library; dismiss drops it. Feed sources and boost topics are fully user-editable (add/delete), seeded with a couple of defaults on first run. Not scheduled automatically yet — refresh from the `/radar` page or `backend/scripts/radar_refresh.py` (cron/launchd), matching the wiki-compile pattern.
+
 ## Get started
 
 You need **Python 3.11+** with [uv](https://docs.astral.sh/uv/), **Node 20+**, and one agent CLI you already use, signed in: [Claude Code](https://docs.claude.com/en/docs/claude-code/setup) (`claude`) or [OpenAI Codex](https://github.com/openai/codex) (`codex`) — or an Anthropic/OpenAI API key instead.

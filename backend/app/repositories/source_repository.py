@@ -425,3 +425,23 @@ def mark_feedback_promoted(data_root: Path, source_id: str, feedback_id: str) ->
             _write_feedback(data_root, source_id, history)
             return entry
     return None
+
+
+def list_source_urls(data_root: Path) -> set[str]:
+    """URLs already in the library (meta.json's source_url, when present —
+    plain-text sources have none). Used by Radar to avoid recommending
+    something already saved."""
+    library_dir = data_root / "library"
+    if not library_dir.exists():
+        return set()
+
+    urls = set()
+    for source_dir in library_dir.iterdir():
+        meta_path = source_dir / "meta.json"
+        if not meta_path.exists():
+            continue
+        meta = json.loads(meta_path.read_text())
+        url = meta.get("source_url")
+        if url:
+            urls.add(url)
+    return urls
