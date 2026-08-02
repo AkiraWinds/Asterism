@@ -52,3 +52,16 @@ def test_fetch_feed_items_raises_on_unparseable_content(monkeypatch):
 
     with pytest.raises(FeedFetchError):
         fetch_feed_items("https://example.com/rss.xml")
+
+
+def test_fetch_feed_items_does_not_let_feedparser_fetch_a_url_from_body(monkeypatch):
+    # A malicious/misconfigured feed server could return a body that happens to
+    # BE a URL (e.g. targeting cloud metadata endpoints). feedparser.parse()
+    # would fetch that URL itself with zero SSRF protection if given a raw str,
+    # bypassing fetch_url's guard entirely. Passing io.BytesIO forces feedparser
+    # down its "already have data" path instead, so this must return no entries
+    # (it's not valid feed XML) rather than silently fetching the URL-as-body.
+    monkeypatch.setattr("app.radar.fetcher.fetch_url", lambda url: "http://169.254.169.254/latest/meta-data/")
+
+    with pytest.raises(FeedFetchError):
+        fetch_feed_items("https://example.com/rss.xml")

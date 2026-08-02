@@ -5,6 +5,7 @@ parses it with feedparser. See
 docs/superpowers/specs/2026-08-02-radar-content-discovery-design.md.
 """
 
+import io
 from datetime import datetime, timezone
 
 import feedparser
@@ -27,7 +28,15 @@ def fetch_feed_items(url: str) -> list[dict]:
     except FetchError as exc:
         raise FeedFetchError(f"Failed to fetch feed {url}: {exc}") from exc
 
-    parsed = feedparser.parse(raw)
+    # feedparser.parse() treats a str argument as a URL-or-filename BEFORE
+    # treating it as raw feed data. If `raw`'s body happens to parse as a URL
+    # (e.g. a malicious feed server returns a body of exactly
+    # "http://169.254.169.254/latest/meta-data/"), feedparser would fetch
+    # THAT itself with zero SSRF protection, bypassing the guard fetch_url
+    # already applied. Wrapping in BytesIO forces feedparser down its
+    # "already have data" code path (the hasattr(..., 'read') branch),
+    # skipping both the URL-fetch and local-file-read branches entirely.
+    parsed = feedparser.parse(io.BytesIO(raw.encode("utf-8")))
     if parsed.bozo and not parsed.entries:
         raise FeedFetchError(f"Feed at {url} could not be parsed: {parsed.bozo_exception}")
 

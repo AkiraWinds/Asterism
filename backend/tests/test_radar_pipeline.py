@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.providers.base import Provider, ProviderConfigError, ProviderMissingError
+from app.providers.base import Provider, ProviderMissingError
 from app.radar.fetcher import FeedFetchError
 from app.radar.pipeline import refresh_radar
 from app.radar_store.store import (
@@ -39,7 +39,7 @@ def test_refresh_radar_happy_path(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
     monkeypatch.setattr(
         "app.radar.pipeline.coarse_filter",
-        lambda graph_db_path, api_key, items, boost_terms, top_n=20: [{**items[0], "_coarse_score": 0.9}],
+        lambda graph_db_path, api_key, items, boost_terms, top_n=20: [{**i, "_coarse_score": 0.9} for i in items],
     )
     monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url: "<html>full article body</html>")
     monkeypatch.setattr("app.radar.pipeline.extract_content", lambda html, url, data_root: "full article body")
@@ -95,21 +95,53 @@ def test_refresh_radar_disabled_source_is_skipped(tmp_path: Path, monkeypatch):
     assert "Disabled Source" not in summary
 
 
-def test_refresh_radar_coarse_filter_provider_error_isolated_to_source(tmp_path: Path, monkeypatch):
-    """coarse_filter's embed_text call can raise ProviderConfigError (bad
-    embeddings key) or a transient ProviderError. That must be recorded as
-    this source's error and must not abort the whole run."""
+def test_refresh_radar_coarse_filter_runtime_error_does_not_abort_run(tmp_path: Path, monkeypatch):
+    """coarse_filter now runs exactly once per run over the combined
+    candidate pool from every source (not once per source), so a failure
+    inside it (embed_text raising ProviderConfigError/ProviderError, or
+    nearest_neighbors raising e.g. sqlite3.OperationalError on a locked
+    graph.db) is a run-level event, not attributable to one source. It must
+    not abort the whole run, and must not wipe out the per-source
+    fetch-status bookkeeping already recorded in pass 1."""
     db_path = _setup(tmp_path)
-    insert_feed_source(db_path, "bad", "Bad Embeds Source", "https://bad.example.com/rss", "2026-08-02T00:00:00+00:00")
-    insert_feed_source(db_path, "good", "Good Source", "https://good.example.com/rss", "2026-08-02T00:00:00+00:00")
+    insert_feed_source(db_path, "s1", "Source One", "https://one.example.com/rss", "2026-08-02T00:00:00+00:00")
+    insert_feed_source(db_path, "s2", "Source Two", "https://two.example.com/rss", "2026-08-02T00:00:00+00:00")
 
     def _fetch(url):
         return [{"url": f"{url}/post", "title": "A Post", "summary": "About agents.", "published_at": None}]
 
     def _coarse_filter(graph_db_path, api_key, items, boost_terms, top_n=20):
-        if items and "bad" in items[0]["url"]:
-            raise ProviderConfigError("embeddings API key is invalid")
-        return [{**items[0], "_coarse_score": 0.9}] if items else []
+        raise RuntimeError("graph.db is locked")
+
+    monkeypatch.setattr("app.radar.pipeline.fetch_feed_items", _fetch)
+    monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
+    monkeypatch.setattr("app.radar.pipeline.coarse_filter", _coarse_filter)
+
+    summary = refresh_radar(tmp_path, _StubProvider(), "fake-embed-key")
+
+    assert summary["Source One"]["error"] is None
+    assert summary["Source Two"]["error"] is None
+    assert summary["Source One"]["new"] == 0
+    assert summary["Source Two"]["new"] == 0
+
+
+def test_refresh_radar_calls_coarse_filter_once_per_run_not_per_source(tmp_path: Path, monkeypatch):
+    """coarse_filter's top_n (default 20) is meant to cap candidates per RUN,
+    not per source — calling it once per source would let up to top_n *
+    num_sources items through to the expensive full-content-fetch + judge
+    step. Assert it's called exactly once regardless of source count."""
+    db_path = _setup(tmp_path)
+    insert_feed_source(db_path, "s1", "Source One", "https://one.example.com/rss", "2026-08-02T00:00:00+00:00")
+    insert_feed_source(db_path, "s2", "Source Two", "https://two.example.com/rss", "2026-08-02T00:00:00+00:00")
+
+    def _fetch(url):
+        return [{"url": f"{url}/post", "title": "A Post", "summary": "About agents.", "published_at": None}]
+
+    call_count = {"n": 0}
+
+    def _coarse_filter(graph_db_path, api_key, items, boost_terms, top_n=20):
+        call_count["n"] += 1
+        return [{**i, "_coarse_score": 0.9} for i in items]
 
     monkeypatch.setattr("app.radar.pipeline.fetch_feed_items", _fetch)
     monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
@@ -121,11 +153,38 @@ def test_refresh_radar_coarse_filter_provider_error_isolated_to_source(tmp_path:
         lambda provider, text, source_name, terms: {"relevance_score": 0.8, "quality_score": 0.7, "reasoning": "ok"},
     )
 
+    refresh_radar(tmp_path, _StubProvider(), "fake-embed-key")
+
+    assert call_count["n"] == 1
+
+
+def test_refresh_radar_skips_items_below_relevance_floor(tmp_path: Path, monkeypatch):
+    """A coarse-filtered candidate that judges as low-relevance (e.g. on a
+    fresh install with an empty concept graph, where every coarse score is
+    0.0) must not be persisted — that's noise, not a recommendation."""
+    db_path = _setup(tmp_path)
+    insert_feed_source(db_path, "s1", "Source One", "https://one.example.com/rss", "2026-08-02T00:00:00+00:00")
+
+    monkeypatch.setattr(
+        "app.radar.pipeline.fetch_feed_items",
+        lambda url: [{"url": "https://one.example.com/post", "title": "A Post", "summary": "About agents.", "published_at": None}],
+    )
+    monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
+    monkeypatch.setattr(
+        "app.radar.pipeline.coarse_filter",
+        lambda graph_db_path, api_key, items, boost_terms, top_n=20: [{**i, "_coarse_score": 0.0} for i in items],
+    )
+    monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url: "<html>full article body</html>")
+    monkeypatch.setattr("app.radar.pipeline.extract_content", lambda html, url, data_root: "full article body")
+    monkeypatch.setattr(
+        "app.radar.pipeline.judge_item",
+        lambda provider, text, source_name, terms: {"relevance_score": 0.05, "quality_score": 0.7, "reasoning": "Not really relevant."},
+    )
+
     summary = refresh_radar(tmp_path, _StubProvider(), "fake-embed-key")
 
-    assert summary["Bad Embeds Source"]["error"] is not None
-    assert summary["Good Source"]["error"] is None
-    assert summary["Good Source"]["new"] == 1
+    assert summary["Source One"]["new"] == 0
+    assert list_new_radar_items(db_path, cutoff_iso="2020-01-01T00:00:00+00:00") == []
 
 
 def test_refresh_radar_judge_provider_missing_error_isolated_to_source(tmp_path: Path, monkeypatch):
@@ -149,7 +208,7 @@ def test_refresh_radar_judge_provider_missing_error_isolated_to_source(tmp_path:
     monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
     monkeypatch.setattr(
         "app.radar.pipeline.coarse_filter",
-        lambda graph_db_path, api_key, items, boost_terms, top_n=20: [{**items[0], "_coarse_score": 0.9}] if items else [],
+        lambda graph_db_path, api_key, items, boost_terms, top_n=20: [{**i, "_coarse_score": 0.9} for i in items],
     )
     monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url: "<html>full article body</html>")
     monkeypatch.setattr("app.radar.pipeline.extract_content", lambda html, url, data_root: "full article body")

@@ -75,6 +75,36 @@ def test_add_item_creates_library_source(tmp_path: Path, monkeypatch):
     assert client.get("/radar").json()["items"] == []  # no longer 'new'
 
 
+def test_dismiss_already_added_item_returns_409(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    _write_config(tmp_path)
+    db_path = radar_db_path(tmp_path)
+    init_db(db_path)
+    insert_radar_item(
+        db_path, item_id="i1", source_id="seed_0", url="https://example.com/a", title="A", summary="s",
+        published_at=None, relevance_score=0.8, quality_score=0.5, reasoning="r",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    monkeypatch.setattr("app.routers.radar.fetch_url", lambda url: "<html><title>A</title>full body</html>")
+    monkeypatch.setattr("app.routers.radar.extract_content", lambda html, url, data_root: "full body")
+
+    add_response = client.post("/radar/items/i1/add")
+    assert add_response.status_code == 200
+    added_source_id = add_response.json()["id"]
+
+    dismiss_response = client.post("/radar/items/i1/dismiss")
+
+    assert dismiss_response.status_code == 409
+
+    # The link to the library source it was added as must survive the
+    # rejected dismiss attempt.
+    from app.radar_store.store import get_radar_item
+
+    item = get_radar_item(db_path, "i1")
+    assert item["status"] == "added"
+    assert item["added_source_id"] == added_source_id
+
+
 def test_refresh_endpoint_invokes_pipeline(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
     _write_config(tmp_path)

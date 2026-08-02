@@ -1,5 +1,5 @@
 """API routes for Radar: curated RSS source CRUD, manual interest boost
-topics, and (Task 8) the refresh/list/add/dismiss recommendation flow. See
+topics, and the refresh/list/add/dismiss recommendation flow. See
 docs/superpowers/specs/2026-08-02-radar-content-discovery-design.md.
 """
 
@@ -173,7 +173,13 @@ def post_add_item_endpoint(item_id: str):
 @router.post("/items/{item_id}/dismiss", status_code=204)
 def post_dismiss_item_endpoint(item_id: str):
     db_path = _ensure_db()
-    if get_radar_item(db_path, item_id) is None:
+    item = get_radar_item(db_path, item_id)
+    if item is None:
         raise HTTPException(status_code=404, detail="Radar item not found")
+    if item["status"] == "added":
+        # update_radar_item_status does an unconditional SET added_source_id
+        # = ? (default None) — dismissing an already-added item would wipe
+        # out the link to the library source it was added as.
+        raise HTTPException(status_code=409, detail="Cannot dismiss an item that has already been added to the library")
     update_radar_item_status(db_path, item_id, status="dismissed")
     return Response(status_code=204)
