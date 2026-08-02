@@ -4,24 +4,34 @@ docs/superpowers/specs/2026-08-02-radar-content-discovery-design.md.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Response
 
 from app.core.config import get_data_root
+from app.ingestion.extractor import extract_content
+from app.ingestion.fetcher import fetch_url
+from app.ingestion.title import extract_title
+from app.providers.factory import build_provider
+from app.radar.pipeline import refresh_radar
 from app.radar_store.store import (
     delete_boost_topic,
     delete_feed_source,
     get_boost_topic,
     get_feed_source,
+    get_radar_item,
     init_db,
     insert_boost_topic,
     insert_feed_source,
     list_boost_topics,
     list_feed_sources,
+    list_new_radar_items,
     radar_db_path,
     update_feed_source,
+    update_radar_item_status,
 )
+from app.repositories.config_repository import load_config, load_embeddings_api_key
+from app.repositories.source_repository import create_source_from_url
 from app.schemas.radar import (
     BoostTopic,
     BoostTopicCreateRequest,
@@ -30,9 +40,17 @@ from app.schemas.radar import (
     FeedSourceCreateRequest,
     FeedSourceList,
     FeedSourceUpdateRequest,
+    RadarItem,
+    RadarItemList,
+    RadarRefreshSummary,
 )
 
 router = APIRouter(prefix="/radar", tags=["radar"])
+
+# Radar items are ephemeral recommendations, not a permanent archive — items
+# still 'new' after this many days drop out of GET /radar (though they stay
+# in radar.db for dedup purposes via list_all_radar_item_urls).
+RADAR_ITEM_EXPIRY_DAYS = 14
 
 
 def _now_iso() -> str:
@@ -101,4 +119,47 @@ def delete_boost_topic_endpoint(topic_id: str):
     if get_boost_topic(db_path, topic_id) is None:
         raise HTTPException(status_code=404, detail="Boost topic not found")
     delete_boost_topic(db_path, topic_id)
+    return Response(status_code=204)
+
+
+@router.post("/refresh", response_model=RadarRefreshSummary)
+def post_refresh_endpoint() -> RadarRefreshSummary:
+    data_root = get_data_root()
+    config = load_config(data_root)
+    embeddings_api_key = load_embeddings_api_key(data_root)
+    provider = build_provider(config, data_root)
+    summary = refresh_radar(data_root, provider, embeddings_api_key)
+    return RadarRefreshSummary(per_source=summary)
+
+
+@router.get("", response_model=RadarItemList)
+def get_radar_items_endpoint() -> RadarItemList:
+    db_path = _ensure_db()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=RADAR_ITEM_EXPIRY_DAYS)).isoformat()
+    return RadarItemList(items=[RadarItem(**i) for i in list_new_radar_items(db_path, cutoff)])
+
+
+@router.post("/items/{item_id}/add")
+def post_add_item_endpoint(item_id: str):
+    db_path = _ensure_db()
+    item = get_radar_item(db_path, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Radar item not found")
+
+    data_root = get_data_root()
+    html = fetch_url(item["url"])
+    title = extract_title(html, item["url"]) or item["title"]
+    content = extract_content(html, item["url"], data_root)
+    record = create_source_from_url(data_root, item["url"], title, html, content)
+
+    update_radar_item_status(db_path, item_id, status="added", added_source_id=record.id)
+    return {"id": record.id, "title": record.title}
+
+
+@router.post("/items/{item_id}/dismiss", status_code=204)
+def post_dismiss_item_endpoint(item_id: str):
+    db_path = _ensure_db()
+    if get_radar_item(db_path, item_id) is None:
+        raise HTTPException(status_code=404, detail="Radar item not found")
+    update_radar_item_status(db_path, item_id, status="dismissed")
     return Response(status_code=204)
