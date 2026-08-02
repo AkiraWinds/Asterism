@@ -10,8 +10,9 @@ from fastapi import APIRouter, HTTPException, Response
 
 from app.core.config import get_data_root
 from app.ingestion.extractor import extract_content
-from app.ingestion.fetcher import fetch_url
+from app.ingestion.fetcher import FetchError, fetch_url
 from app.ingestion.title import extract_title
+from app.providers.base import ProviderError
 from app.providers.factory import build_provider
 from app.radar.pipeline import refresh_radar
 from app.radar_store.store import (
@@ -30,7 +31,7 @@ from app.radar_store.store import (
     update_feed_source,
     update_radar_item_status,
 )
-from app.repositories.config_repository import load_config, load_embeddings_api_key
+from app.repositories.config_repository import ConfigError, load_config, load_embeddings_api_key
 from app.repositories.source_repository import create_source_from_url
 from app.schemas.radar import (
     BoostTopic,
@@ -125,8 +126,14 @@ def delete_boost_topic_endpoint(topic_id: str):
 @router.post("/refresh", response_model=RadarRefreshSummary)
 def post_refresh_endpoint() -> RadarRefreshSummary:
     data_root = get_data_root()
-    config = load_config(data_root)
-    embeddings_api_key = load_embeddings_api_key(data_root)
+    try:
+        config = load_config(data_root)
+        embeddings_api_key = load_embeddings_api_key(data_root)
+    except ConfigError as exc:
+        # Same failure mode as the CLI twin (scripts/radar_refresh.py), which
+        # catches this and reports it as a JSON error rather than crashing —
+        # both entry points to the same operation should degrade the same way.
+        raise HTTPException(status_code=400, detail=str(exc))
     provider = build_provider(config, data_root)
     summary = refresh_radar(data_root, provider, embeddings_api_key)
     return RadarRefreshSummary(per_source=summary)
@@ -147,10 +154,17 @@ def post_add_item_endpoint(item_id: str):
         raise HTTPException(status_code=404, detail="Radar item not found")
 
     data_root = get_data_root()
-    html = fetch_url(item["url"])
-    title = extract_title(html, item["url"]) or item["title"]
-    content = extract_content(html, item["url"], data_root)
-    record = create_source_from_url(data_root, item["url"], title, html, content)
+    try:
+        html = fetch_url(item["url"])
+        title = extract_title(html, item["url"]) or item["title"]
+        content = extract_content(html, item["url"], data_root)
+        record = create_source_from_url(data_root, item["url"], title, html, content)
+    except (FetchError, ConfigError, ProviderError, OSError) as exc:
+        # Not the full structured-error mapping sources.py's create_source_endpoint
+        # has (deferred to the frontend follow-up plan) — one combined 502 is
+        # proportionate for this reuse endpoint. update_radar_item_status is never
+        # reached here, so the item stays 'new' and safely retryable.
+        raise HTTPException(status_code=502, detail=f"Failed to add item: {exc}")
 
     update_radar_item_status(db_path, item_id, status="added", added_source_id=record.id)
     return {"id": record.id, "title": record.title}

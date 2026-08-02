@@ -84,3 +84,40 @@ def test_refresh_endpoint_invokes_pipeline(tmp_path: Path, monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["per_source"]["Some Source"]["new"] == 1
+
+
+def test_refresh_endpoint_returns_400_on_config_error(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    # No config.json written — load_config should raise ConfigError.
+
+    response = client.post("/radar/refresh")
+
+    assert response.status_code == 400
+
+
+def test_add_item_returns_502_on_fetch_error(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    _write_config(tmp_path)
+    db_path = radar_db_path(tmp_path)
+    init_db(db_path)
+    insert_radar_item(
+        db_path, item_id="i1", source_id="seed_0", url="https://example.com/a", title="A", summary="s",
+        published_at=None, relevance_score=0.8, quality_score=0.5, reasoning="r",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    from app.ingestion.fetcher import FetchError
+
+    def _raise_fetch_error(url):
+        raise FetchError("boom")
+
+    monkeypatch.setattr("app.routers.radar.fetch_url", _raise_fetch_error)
+
+    response = client.post("/radar/items/i1/add")
+
+    assert response.status_code == 502
+    assert "detail" in response.json()
+
+    # Item must remain 'new' and safely retryable, not corrupted.
+    ids = [i["id"] for i in client.get("/radar").json()["items"]]
+    assert ids == ["i1"]
