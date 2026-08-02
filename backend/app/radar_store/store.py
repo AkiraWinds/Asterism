@@ -144,3 +144,83 @@ def delete_feed_source(db_path: Path, source_id: str) -> None:
     with _connect(db_path) as conn:
         conn.execute("DELETE FROM feed_sources WHERE id = ?", (source_id,))
         conn.commit()
+
+
+def insert_boost_topic(db_path: Path, topic_id: str, term: str, created_at: str) -> None:
+    """Insert a manual interest boost topic."""
+    with _connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO boost_topics (id, term, created_at) VALUES (?, ?, ?)", (topic_id, term, created_at)
+        )
+        conn.commit()
+
+
+def list_boost_topics(db_path: Path) -> list[dict]:
+    """List all boost topics."""
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM boost_topics").fetchall()
+        return [dict(r) for r in rows]
+
+
+def delete_boost_topic(db_path: Path, topic_id: str) -> None:
+    """Delete a boost topic by ID."""
+    with _connect(db_path) as conn:
+        conn.execute("DELETE FROM boost_topics WHERE id = ?", (topic_id,))
+        conn.commit()
+
+
+def insert_radar_item(
+    db_path: Path, *, item_id: str, source_id: str, url: str, title: str, summary: str,
+    published_at: str | None, relevance_score: float, quality_score: float, reasoning: str, created_at: str,
+) -> bool:
+    """Insert a radar item. Returns False (no-op) if url already exists — UNIQUE constraint is the dedup-across-runs mechanism."""
+    try:
+        with _connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO radar_items "
+                "(id, source_id, url, title, summary, published_at, relevance_score, quality_score, reasoning, status, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)",
+                (item_id, source_id, url, title, summary, published_at, relevance_score, quality_score, reasoning, created_at),
+            )
+            conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        # URL already exists; dedup by returning False without inserting.
+        return False
+
+
+def list_new_radar_items(db_path: Path, cutoff_iso: str) -> list[dict]:
+    """List new radar items created at or after cutoff_iso, ordered by relevance_score descending."""
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM radar_items WHERE status = 'new' AND created_at >= ? ORDER BY relevance_score DESC",
+            (cutoff_iso,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_radar_item(db_path: Path, item_id: str) -> dict | None:
+    """Get a radar item by ID."""
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM radar_items WHERE id = ?", (item_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def update_radar_item_status(db_path: Path, item_id: str, *, status: str, added_source_id: str | None = None) -> None:
+    """Update a radar item's status and optionally the source it was added to."""
+    with _connect(db_path) as conn:
+        conn.execute(
+            "UPDATE radar_items SET status = ?, added_source_id = ? WHERE id = ?",
+            (status, added_source_id, item_id),
+        )
+        conn.commit()
+
+
+def list_all_radar_item_urls(db_path: Path) -> set[str]:
+    """Get all URLs in the radar_items table (used for dedup checking)."""
+    with _connect(db_path) as conn:
+        rows = conn.execute("SELECT url FROM radar_items").fetchall()
+        return {r[0] for r in rows}
