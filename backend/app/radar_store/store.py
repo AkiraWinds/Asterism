@@ -1,0 +1,146 @@
+"""SQLite-backed store for Radar (proactive content discovery feed):
+feed_sources (curated RSS sources), boost_topics (manual interest boosts),
+and radar_items (ranked recommendations awaiting user action). Lives at
+{data_root}/.index/radar.db — a separate file from graph.db since Radar's
+lifecycle (item expiry, per-source fetch health) is unrelated to
+concept-graph state. See
+docs/superpowers/specs/2026-08-02-radar-content-discovery-design.md.
+"""
+
+import sqlite3
+from contextlib import contextmanager
+from pathlib import Path
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS feed_sources (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_fetched_at TEXT NULL,
+  last_fetch_status TEXT NULL,
+  last_fetch_error TEXT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS boost_topics (
+  id TEXT PRIMARY KEY,
+  term TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS radar_items (
+  id TEXT PRIMARY KEY,
+  source_id TEXT NOT NULL,
+  url TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  published_at TEXT NULL,
+  relevance_score REAL NOT NULL,
+  quality_score REAL NOT NULL,
+  reasoning TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'new',
+  added_source_id TEXT NULL,
+  created_at TEXT NOT NULL
+);
+"""
+
+# Seeded on first init_db only (table starts empty). Editable/removable via
+# the CRUD API immediately after — not a hardcoded runtime list, just a
+# starting point. Anthropic has no official RSS feed as of this writing, so
+# it's deliberately left off rather than seeding a fragile unofficial mirror.
+DEFAULT_FEED_SOURCES = [
+    ("OpenAI Blog", "https://openai.com/news/rss.xml"),
+    ("LangChain Blog", "https://blog.langchain.dev/rss/"),
+]
+
+
+def radar_db_path(data_root: Path) -> Path:
+    return data_root / ".index" / "radar.db"
+
+
+@contextmanager
+def _connect(db_path: Path):
+    conn = sqlite3.connect(db_path)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def _row_to_feed_source(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    d["enabled"] = bool(d["enabled"])
+    return d
+
+
+def init_db(db_path: Path) -> None:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with _connect(db_path) as conn:
+        conn.executescript(SCHEMA)
+        count = conn.execute("SELECT COUNT(*) FROM feed_sources").fetchone()[0]
+        if count == 0:
+            from datetime import datetime, timezone
+
+            now = datetime.now(timezone.utc).isoformat()
+            for i, (name, url) in enumerate(DEFAULT_FEED_SOURCES):
+                conn.execute(
+                    "INSERT INTO feed_sources (id, name, url, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
+                    (f"seed_{i}", name, url, now),
+                )
+        conn.commit()
+
+
+def insert_feed_source(db_path: Path, source_id: str, name: str, url: str, created_at: str) -> None:
+    with _connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO feed_sources (id, name, url, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
+            (source_id, name, url, created_at),
+        )
+        conn.commit()
+
+
+def list_feed_sources(db_path: Path) -> list[dict]:
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM feed_sources").fetchall()
+        return [_row_to_feed_source(r) for r in rows]
+
+
+def get_feed_source(db_path: Path, source_id: str) -> dict | None:
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM feed_sources WHERE id = ?", (source_id,)).fetchone()
+        return _row_to_feed_source(row) if row else None
+
+
+def update_feed_source(
+    db_path: Path, source_id: str, *, name: str | None = None, url: str | None = None, enabled: bool | None = None
+) -> None:
+    current = get_feed_source(db_path, source_id)
+    if current is None:
+        return
+    new_name = name if name is not None else current["name"]
+    new_url = url if url is not None else current["url"]
+    new_enabled = int(enabled) if enabled is not None else int(current["enabled"])
+    with _connect(db_path) as conn:
+        conn.execute(
+            "UPDATE feed_sources SET name = ?, url = ?, enabled = ? WHERE id = ?",
+            (new_name, new_url, new_enabled, source_id),
+        )
+        conn.commit()
+
+
+def update_feed_source_fetch_status(db_path: Path, source_id: str, *, status: str, error: str | None, fetched_at: str) -> None:
+    with _connect(db_path) as conn:
+        conn.execute(
+            "UPDATE feed_sources SET last_fetch_status = ?, last_fetch_error = ?, last_fetched_at = ? WHERE id = ?",
+            (status, error, fetched_at, source_id),
+        )
+        conn.commit()
+
+
+def delete_feed_source(db_path: Path, source_id: str) -> None:
+    with _connect(db_path) as conn:
+        conn.execute("DELETE FROM feed_sources WHERE id = ?", (source_id,))
+        conn.commit()
