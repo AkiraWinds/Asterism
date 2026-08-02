@@ -15,7 +15,7 @@ from app.graph_store.store import graph_db_path
 from app.graph_store.store import init_db as init_graph_db
 from app.ingestion.extractor import extract_content
 from app.ingestion.fetcher import fetch_url
-from app.providers.base import Provider
+from app.providers.base import Provider, ProviderConfigError, ProviderError, ProviderMissingError
 from app.radar.fetcher import FeedFetchError, fetch_feed_items
 from app.radar.judge import JudgeError, judge_item
 from app.radar.ranking import coarse_filter, filter_new_items
@@ -41,8 +41,10 @@ def refresh_radar(data_root: Path, provider: Provider, embeddings_api_key: str) 
     """Run one Radar refresh pass across all enabled feed sources.
 
     Returns {source_name: {"fetched": int, "new": int, "error": str | None}}.
-    A source that fails to fetch is recorded with its error and skipped; a
-    shortlisted item that fails full-content fetch/extraction/judging is
+    A source that fails to fetch, coarse-filter (e.g. bad embeddings key,
+    provider rate limit), or hit a systemic provider misconfiguration while
+    judging is recorded with its error and skipped; a shortlisted item that
+    fails full-content fetch/extraction/judging for an ordinary reason is
     logged and skipped — neither aborts the run for other sources/items.
     """
     db_path = radar_db_path(data_root)
@@ -70,37 +72,59 @@ def refresh_radar(data_root: Path, provider: Provider, embeddings_api_key: str) 
             summary[source["name"]] = {"fetched": 0, "new": 0, "error": str(exc)}
             continue
 
-        new_items = filter_new_items(raw_items, seen_urls)
-        shortlist = coarse_filter(g_db_path, embeddings_api_key, new_items, boost_terms)
+        # filter_new_items/coarse_filter and the per-item judging loop below
+        # are wrapped together: coarse_filter calls embed_text, which can
+        # raise ProviderConfigError (bad/expired embeddings key) or the
+        # broader ProviderError (rate limit, transient network failure).
+        # judge_item can raise ProviderMissingError/ProviderConfigError too,
+        # re-raised deliberately by the per-item try/except below since those
+        # signal a systemic provider misconfiguration rather than a
+        # per-item content problem. Either way this is a per-*source*
+        # failure, not a whole-run failure — record it on this source and
+        # move on to the next one.
+        try:
+            new_items = filter_new_items(raw_items, seen_urls)
+            shortlist = coarse_filter(g_db_path, embeddings_api_key, new_items, boost_terms)
 
-        new_count = 0
-        for item in shortlist:
-            try:
-                html = fetch_url(item["url"])
-                article_text = extract_content(html, item["url"], data_root)
-                judgment = judge_item(provider, article_text, source["name"], boost_terms)
-            except Exception as exc:  # noqa: BLE001 - any per-item failure must not break the run
-                logger.warning("Radar judgment failed url=%s error=%s", item["url"], exc)
-                continue
+            new_count = 0
+            for item in shortlist:
+                try:
+                    html = fetch_url(item["url"])
+                    article_text = extract_content(html, item["url"], data_root)
+                    judgment = judge_item(provider, article_text, source["name"], boost_terms)
+                except (ProviderMissingError, ProviderConfigError):
+                    # Systemic provider misconfiguration, not a per-item
+                    # content failure — propagate to the source-level catch
+                    # below instead of silently skipping every item.
+                    raise
+                except Exception as exc:  # noqa: BLE001 - any other per-item failure must not break the run
+                    logger.warning("Radar judgment failed url=%s error=%s", item["url"], exc)
+                    continue
 
-            inserted = insert_radar_item(
-                db_path,
-                item_id=uuid.uuid4().hex[:12],
-                source_id=source["id"],
-                url=item["url"],
-                title=item["title"],
-                summary=item.get("summary", ""),
-                published_at=item.get("published_at"),
-                relevance_score=judgment["relevance_score"],
-                quality_score=judgment["quality_score"],
-                reasoning=judgment["reasoning"],
-                created_at=_now_iso(),
+                inserted = insert_radar_item(
+                    db_path,
+                    item_id=uuid.uuid4().hex[:12],
+                    source_id=source["id"],
+                    url=item["url"],
+                    title=item["title"],
+                    summary=item.get("summary", ""),
+                    published_at=item.get("published_at"),
+                    relevance_score=judgment["relevance_score"],
+                    quality_score=judgment["quality_score"],
+                    reasoning=judgment["reasoning"],
+                    created_at=_now_iso(),
+                )
+                if inserted:
+                    new_count += 1
+                    seen_urls.add(item["url"])
+
+            update_feed_source_fetch_status(db_path, source["id"], status="ok", error=None, fetched_at=_now_iso())
+            summary[source["name"]] = {"fetched": len(raw_items), "new": new_count, "error": None}
+        except ProviderError as exc:
+            logger.warning("Radar processing failed source=%s error=%s", source["name"], exc)
+            update_feed_source_fetch_status(
+                db_path, source["id"], status="error", error=str(exc), fetched_at=_now_iso()
             )
-            if inserted:
-                new_count += 1
-                seen_urls.add(item["url"])
-
-        update_feed_source_fetch_status(db_path, source["id"], status="ok", error=None, fetched_at=_now_iso())
-        summary[source["name"]] = {"fetched": len(raw_items), "new": new_count, "error": None}
+            summary[source["name"]] = {"fetched": len(raw_items), "new": 0, "error": str(exc)}
 
     return summary
