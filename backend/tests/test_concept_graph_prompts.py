@@ -22,6 +22,31 @@ def test_build_extraction_prompt_omits_note_section_when_none():
     assert "User's note" not in prompt
 
 
+def test_build_extraction_prompt_includes_few_shot_examples():
+    prompt = build_extraction_prompt("some quote", None)
+    assert "Example" in prompt or "example" in prompt
+
+
+def test_build_extraction_prompt_includes_negative_example():
+    prompt = build_extraction_prompt("some quote", None)
+    assert "don't extract" in prompt.lower() or "too generic" in prompt.lower()
+
+
+def test_build_extraction_prompt_allows_abstaining():
+    prompt = build_extraction_prompt("some quote", None)
+    assert "empty list" in prompt.lower() or "return []" in prompt.lower()
+
+
+def test_build_extraction_prompt_requires_quote_anchoring():
+    prompt = build_extraction_prompt("some quote", None)
+    assert "quote" in prompt.lower()
+
+
+def test_parse_extraction_response_accepts_empty_list():
+    concepts = parse_extraction_response("[]")
+    assert concepts == []
+
+
 def test_parse_extraction_response_returns_concepts():
     raw = json.dumps([
         {"term": "Local-first storage", "definition": "Filesystem is the source of truth.", "self_relevant": False}
@@ -138,5 +163,32 @@ def test_parse_dedup_response_raises_on_object_instead_of_list():
 def test_parse_dedup_response_raises_on_missing_key():
     raw = json.dumps([{"existing_concept_id": "c_1", "judgment": "same", "confidence": "high",
                         "relationship": "none"}])
+    with pytest.raises(ValueError):
+        parse_dedup_response(raw)
+
+
+def test_parse_dedup_response_raises_on_invalid_judgment():
+    raw = json.dumps([
+        {"existing_concept_id": "c_1", "judgment": "sort_of_the_same", "confidence": "high",
+         "relationship": "extends", "summary": "s"}
+    ])
+    with pytest.raises(ValueError):
+        parse_dedup_response(raw)
+
+
+def test_parse_dedup_response_raises_on_invalid_confidence():
+    raw = json.dumps([
+        {"existing_concept_id": "c_1", "judgment": "same", "confidence": "very_high",
+         "relationship": "extends", "summary": "s"}
+    ])
+    with pytest.raises(ValueError):
+        parse_dedup_response(raw)
+
+
+def test_parse_dedup_response_raises_on_invalid_relationship():
+    raw = json.dumps([
+        {"existing_concept_id": "c_1", "judgment": "same", "confidence": "high",
+         "relationship": "is_basically_the_same_thing", "summary": "s"}
+    ])
     with pytest.raises(ValueError):
         parse_dedup_response(raw)

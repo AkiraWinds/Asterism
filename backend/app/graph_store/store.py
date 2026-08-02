@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS concepts (
   definition TEXT NOT NULL,
   embedding TEXT NOT NULL,
   self_relevant INTEGER NOT NULL DEFAULT 0,
+  golden INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -50,6 +51,17 @@ CREATE TABLE IF NOT EXISTS review_queue (
   llm_judgment TEXT NOT NULL,
   proposed_edge_type TEXT NOT NULL DEFAULT 'related',
   created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS watchlist (
+  id TEXT PRIMARY KEY,
+  term TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  draft_definition TEXT NULL,
+  draft_matched_concept_id TEXT NULL,
+  resolved_concept_id TEXT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 """
 
@@ -87,18 +99,22 @@ def init_db(db_path: Path) -> None:
             conn.execute(
                 "ALTER TABLE review_queue ADD COLUMN proposed_edge_type TEXT NOT NULL DEFAULT 'related'"
             )
+        # Migration guard: concepts table golden column (added for watchlist feature).
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(concepts)")}
+        if "golden" not in cols:
+            conn.execute("ALTER TABLE concepts ADD COLUMN golden INTEGER NOT NULL DEFAULT 0")
         conn.commit()
 
 
 def insert_concept(
     db_path: Path, concept_id: str, term: str, definition: str, embedding: list[float],
-    self_relevant: bool, created_at: str,
+    self_relevant: bool, created_at: str, golden: bool = False,
 ) -> None:
     with _connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO concepts (id, term, definition, embedding, self_relevant, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (concept_id, term, definition, json.dumps(embedding), int(self_relevant), created_at, created_at),
+            "INSERT INTO concepts (id, term, definition, embedding, self_relevant, golden, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (concept_id, term, definition, json.dumps(embedding), int(self_relevant), int(golden), created_at, created_at),
         )
         conn.commit()
 
@@ -110,6 +126,7 @@ def _row_to_concept_dict(row: sqlite3.Row) -> dict:
         "definition": row["definition"],
         "embedding": json.loads(row["embedding"]),
         "self_relevant": row["self_relevant"],
+        "golden": bool(row["golden"]),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -132,6 +149,14 @@ def list_concepts(db_path: Path) -> list[dict]:
 def delete_concept(db_path: Path, concept_id: str) -> None:
     with _connect(db_path) as conn:
         conn.execute("DELETE FROM concepts WHERE id = ?", (concept_id,))
+        conn.commit()
+
+
+def set_concept_golden(db_path: Path, concept_id: str, golden: bool) -> None:
+    """Flip a concept's golden flag, e.g. when a watchlist entry resolves to
+    an existing concept rather than minting a new one (see app/watchlist/resolver.py)."""
+    with _connect(db_path) as conn:
+        conn.execute("UPDATE concepts SET golden = ? WHERE id = ?", (int(golden), concept_id))
         conn.commit()
 
 
@@ -251,6 +276,12 @@ def delete_review_queue_entry(db_path: Path, entry_id: str) -> None:
         conn.commit()
 
 
+# Small tiebreaker bonus for golden concepts in ranking. Helps near-duplicate detection
+# prefer user-approved matches without letting an unrelated golden concept outrank a
+# genuinely close non-golden match. See design doc's Resolution chain for rationale.
+_GOLDEN_BONUS = 0.05
+
+
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b))
     norm_a = math.sqrt(sum(x * x for x in a))
@@ -260,11 +291,102 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-def nearest_neighbors(db_path: Path, embedding: list[float], top_k: int = 3) -> list[tuple[dict, float]]:
+def nearest_neighbors(db_path: Path, embedding: list[float], top_k: int = 3) -> list[tuple[dict, float, float]]:
     """Brute-force cosine similarity over every stored concept. Fine at
     personal-library scale; revisit with a real vector index only if this
-    becomes a measured bottleneck (see design doc's Out of Scope)."""
+    becomes a measured bottleneck (see design doc's Out of Scope). Golden
+    concepts (user-approved via the watchlist) get a small fixed bonus so
+    they win ties against near-duplicate non-golden matches, without letting
+    a barely-related golden concept outrank a genuinely close match.
+
+    Returns (concept, true_similarity, boosted_score) triples, ranked by
+    boosted_score (descending) — true_similarity is the plain cosine value
+    with no golden bonus applied. Callers that only need ranking (e.g. the
+    dedup pipeline's neighbor list) can ignore true_similarity; callers doing
+    an absolute-threshold comparison (e.g. the watchlist resolver) must use
+    true_similarity, not boosted_score, or the golden tie-breaker leaks into
+    what's meant to be a fixed cutoff (see whole-branch review finding #3)."""
     candidates = list_concepts(db_path)
-    scored = [(c, _cosine_similarity(embedding, c["embedding"])) for c in candidates]
-    scored.sort(key=lambda pair: pair[1], reverse=True)
+    # Add small bonus to golden concepts to break ties in deduplication without
+    # letting unrelated golden concepts outrank close non-golden matches. The
+    # bonus affects ranking order only — the true similarity is preserved
+    # alongside it for callers that need an unboosted value.
+    scored = [
+        (c, _cosine_similarity(embedding, c["embedding"]), _cosine_similarity(embedding, c["embedding"]) + (_GOLDEN_BONUS if c["golden"] else 0.0))
+        for c in candidates
+    ]
+    scored.sort(key=lambda triple: triple[2], reverse=True)
     return scored[:top_k]
+
+
+def insert_watchlist_entry(db_path: Path, entry_id: str, term: str, created_at: str) -> None:
+    """Add a new watchlist entry, always starting in 'pending' status with all
+    draft and resolved fields unset (None). The watchlist tracks candidate
+    concepts the user wants to monitor; status progresses pending → resolved
+    as the resolution chain matches or creates a concept."""
+    with _connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO watchlist (id, term, status, created_at, updated_at) VALUES (?, ?, 'pending', ?, ?)",
+            (entry_id, term, created_at, created_at),
+        )
+        conn.commit()
+
+
+def _row_to_watchlist_dict(row: sqlite3.Row) -> dict:
+    """Convert a sqlite3.Row from the watchlist table into a plain dict,
+    handling all NULL fields (draft_* and resolved_concept_id are nullable)."""
+    return {
+        "id": row["id"],
+        "term": row["term"],
+        "status": row["status"],
+        "draft_definition": row["draft_definition"],
+        "draft_matched_concept_id": row["draft_matched_concept_id"],
+        "resolved_concept_id": row["resolved_concept_id"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def get_watchlist_entry(db_path: Path, entry_id: str) -> dict | None:
+    """Fetch a single watchlist entry by ID, returning None if not found."""
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM watchlist WHERE id = ?", (entry_id,)).fetchone()
+        return _row_to_watchlist_dict(row) if row else None
+
+
+def list_watchlist_entries(db_path: Path) -> list[dict]:
+    """Return all watchlist entries, most recently updated first."""
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM watchlist ORDER BY updated_at DESC").fetchall()
+        return [_row_to_watchlist_dict(r) for r in rows]
+
+
+_WATCHLIST_UPDATABLE_FIELDS = {
+    "term", "status", "draft_definition", "draft_matched_concept_id", "resolved_concept_id", "updated_at",
+}
+
+
+def update_watchlist_entry(db_path: Path, entry_id: str, **fields) -> None:
+    """Partial update — pass only the fields that changed. `updated_at` may be
+    passed explicitly (e.g. from the caller's request timestamp); if omitted,
+    the existing value is left as-is rather than silently guessed here."""
+    unknown = set(fields) - _WATCHLIST_UPDATABLE_FIELDS
+    if unknown:
+        raise ValueError(f"Unknown watchlist field(s): {sorted(unknown)}")
+    if not fields:
+        return
+    set_clause = ", ".join(f"{key} = ?" for key in fields)
+    with _connect(db_path) as conn:
+        conn.execute(f"UPDATE watchlist SET {set_clause} WHERE id = ?", (*fields.values(), entry_id))
+        conn.commit()
+
+
+def delete_watchlist_entry(db_path: Path, entry_id: str) -> None:
+    """Removes only the tracking row — never touches the concepts table, even
+    when resolved_concept_id points at a concept (see design doc: the concept
+    stays in the graph; only the watchlist's tracking of it goes away)."""
+    with _connect(db_path) as conn:
+        conn.execute("DELETE FROM watchlist WHERE id = ?", (entry_id,))
+        conn.commit()

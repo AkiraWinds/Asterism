@@ -19,3 +19,15 @@ def test_select_qualifying_concepts_treats_missing_entry_as_zero():
     concepts = [{"id": "c_1"}]
     result = select_qualifying_concepts(concepts, {})
     assert result == []
+
+
+def test_select_qualifying_concepts_golden_bypasses_provenance_threshold():
+    # Human decision: approved watchlist concepts (golden=True) are
+    # user-declared, not extracted from sources, so they legitimately have
+    # zero provenance links and must still qualify for the wiki.
+    concepts = [
+        {"id": "c_golden", "golden": True},
+        {"id": "c_non_golden", "golden": False},
+    ]
+    result = select_qualifying_concepts(concepts, {})
+    assert [c["id"] for c in result] == ["c_golden"]
