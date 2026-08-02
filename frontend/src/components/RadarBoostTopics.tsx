@@ -12,7 +12,9 @@ export function RadarBoostTopics() {
   const [topicError, setTopicError] = useState<string | null>(null);
 
   useEffect(() => {
-    listBoostTopics().then(setTopics);
+    listBoostTopics()
+      .then(setTopics)
+      .catch((err) => setTopicError(err instanceof Error ? err.message : "Failed to load boost topics"));
   }, []);
 
   async function handleAddTopic(e: React.FormEvent) {

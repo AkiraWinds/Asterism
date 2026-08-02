@@ -14,7 +14,9 @@ export function RadarFeedSources() {
   const [sourceError, setSourceError] = useState<string | null>(null);
 
   useEffect(() => {
-    listFeedSources().then(setSources);
+    listFeedSources()
+      .then(setSources)
+      .catch((err) => setSourceError(err instanceof Error ? err.message : "Failed to load feed sources"));
   }, []);
 
   async function handleAddSource(e: React.FormEvent) {

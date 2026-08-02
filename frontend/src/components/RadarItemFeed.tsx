@@ -5,12 +5,12 @@
 // wholesale after a refresh run), so this component takes items down and reports
 // mutations back up via callbacks rather than owning the list itself. Per-item
 // pending/error UI state is local since nothing outside this component needs it.
-import { useState } from "react";
+import { Dispatch, SetStateAction, useState } from "react";
 import { addRadarItem, dismissRadarItem, RadarItem } from "@/lib/api";
 
 interface RadarItemFeedProps {
   items: RadarItem[];
-  onItemsChange: (items: RadarItem[]) => void;
+  onItemsChange: Dispatch<SetStateAction<RadarItem[]>>;
   onAdded: (result: { id: string; title: string }) => void;
 }
 
@@ -24,7 +24,7 @@ export function RadarItemFeed({ items, onItemsChange, onAdded }: RadarItemFeedPr
     try {
       const result = await addRadarItem(item.id);
       onAdded(result);
-      onItemsChange(items.filter((i) => i.id !== item.id));
+      onItemsChange((prev) => prev.filter((i) => i.id !== item.id));
     } catch (err) {
       setItemError({ id: item.id, message: err instanceof Error ? err.message : "Failed to add item" });
     } finally {
@@ -37,7 +37,7 @@ export function RadarItemFeed({ items, onItemsChange, onAdded }: RadarItemFeedPr
     setItemError(null);
     try {
       await dismissRadarItem(item.id);
-      onItemsChange(items.filter((i) => i.id !== item.id));
+      onItemsChange((prev) => prev.filter((i) => i.id !== item.id));
     } catch (err) {
       setItemError({ id: item.id, message: err instanceof Error ? err.message : "Failed to dismiss item" });
     } finally {

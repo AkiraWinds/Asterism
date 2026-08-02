@@ -16,9 +16,12 @@ import { RadarBoostTopics } from "@/components/RadarBoostTopics";
 export default function RadarPage() {
   const [items, setItems] = useState<RadarItem[]>([]);
   const [lastAdded, setLastAdded] = useState<{ id: string; title: string } | null>(null);
+  const [itemsError, setItemsError] = useState<string | null>(null);
 
   useEffect(() => {
-    listRadarItems().then(setItems);
+    listRadarItems()
+      .then(setItems)
+      .catch((err) => setItemsError(err instanceof Error ? err.message : "Failed to load radar items"));
   }, []);
 
   return (
@@ -34,6 +37,7 @@ export default function RadarPage() {
       </div>
 
       <RadarRefreshBar onRefreshed={setItems} lastAdded={lastAdded} />
+      {itemsError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{itemsError}</p>}
       <RadarItemFeed items={items} onItemsChange={setItems} onAdded={setLastAdded} />
 
       <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2">
