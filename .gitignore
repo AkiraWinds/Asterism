@@ -82,6 +82,9 @@ sample_data/.debug/
 marketing/*/renders/
 marketing/*/.hyperframes/
 marketing/*/.thumbnails/
+
+# Marketing hero-video generator — separate tool, kept on disk, not tracked.
+/marketing/hero-video/
 /demo_data2/
 
 
@@ -111,3 +114,19 @@ docs/superpowers
 /vitest.config.ts
 /eslint.config.mjs
 /postcss.config.mjs
+
+# Legacy app's first-run seed data — nothing in backend/frontend references it.
+/sample_data/
+
+# Local-only planning/reference docs — working notes, not shipped in git.
+# Same policy as docs/updates/, docs/INDEX.md, docs/superpowers/ above.
+/docs/ROADMAP.md
+/docs/learning/
+/docs/wiki-pattern.md
+/docs/ONBOARDING.md
+/todo.md
+
+# Legacy-app screenshots no longer used anywhere; keep only the logo.
+docs/assets/*.png
+docs/assets/*.gif
+!docs/assets/Asterism.png

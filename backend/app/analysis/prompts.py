@@ -40,7 +40,7 @@ def build_digest_prompt(title: str, content: str) -> str:
 
 - summary: 2-3 sentences capturing the main point.
 - highlights: the most important individual statements (insight/fact/actionable). "text" may paraphrase the statement for clarity; "source_quote" must be an exact substring copied from the content below.
-- concepts: jargon or key terms a reader might need defined (definitions may draw on general knowledge, unlike summary/highlights, since their purpose is explaining terms to the reader).
+- concepts: jargon or key terms a reader might need defined. Ground each definition in what THIS content actually says about the term — if the content doesn't explain a term, either skip it or keep the definition to what can be inferred from how the term is used here, rather than substituting outside information or external knowledge. Example: content mentioning "gradient descent" without explaining it should either omit that concept or define it only via the surrounding context, not from external knowledge of the term.
 - structure: a short outline of the content's actual sections/flow.
 
 Title: {title}

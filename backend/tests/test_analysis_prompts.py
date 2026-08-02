@@ -61,3 +61,13 @@ def test_detailed_compare_prompt_lists_claims_on_both_sides():
     assert "RAG does not eliminate hallucination" in prompt
     assert "abc123" in prompt
     assert "contradicts" in prompt
+
+
+def test_build_digest_prompt_concepts_no_longer_allow_general_knowledge():
+    prompt = build_digest_prompt("Title", "Some content about gradient descent.")
+    assert "general knowledge" not in prompt.lower()
+
+
+def test_build_digest_prompt_concepts_include_grounding_example():
+    prompt = build_digest_prompt("Title", "Some content.")
+    assert "example" in prompt.lower()

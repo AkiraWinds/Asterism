@@ -75,3 +75,20 @@ def load_embeddings_api_key(data_root: Path) -> str:
         raise ConfigError("config.json must set 'embeddings_api_key' for the concept graph feature")
 
     return api_key
+
+
+def load_brave_api_key(data_root: Path) -> str | None:
+    """Optional — unlike load_config/load_embeddings_api_key, a missing key
+    here is not an error: it means the extraction/watchlist resolution chain
+    skips the web-search step and falls straight through to LLM reasoning
+    (see design doc's Resolution chain), the same optional-key precedent the
+    Brave-backed feed feature already established (todo.md's Known Risks).
+    """
+    config_path = data_root / "config.json"
+    if not config_path.exists():
+        return None
+    try:
+        data = json.loads(config_path.read_text())
+    except json.JSONDecodeError:
+        return None
+    return data.get("brave_api_key") or None
