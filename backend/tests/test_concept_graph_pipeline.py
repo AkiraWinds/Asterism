@@ -3,15 +3,58 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.concept_graph.pipeline import process_highlight, promote_concept
+import pytest
+
+from app.concept_graph.pipeline import (
+    _complete_with_retry,
+    process_highlight,
+    promote_concept,
+    _RELATIONSHIP_TO_EDGE_TYPE,
+)
+from app.concept_graph.prompts import parse_extraction_response
 from app.graph_store.store import graph_db_path, init_db, list_concepts, list_edges, list_review_queue
-from app.providers.base import ProviderConfigError
+from app.providers.base import Provider, ProviderConfigError
 from app.schemas.analysis import Concept
 from app.schemas.highlight import Highlight
 
 
 def _make_highlight(quote="the AI reads first", note=None) -> Highlight:
     return Highlight(id="h_1", source_quote=quote, note=note, source_title="Test Source", created_at="2026-07-30T00:00:00Z")
+
+
+class _FlakyThenGoodProvider(Provider):
+    """Returns malformed JSON once, then a valid response — for retry tests."""
+
+    def __init__(self, good_response: str):
+        self._good_response = good_response
+        self._calls = 0
+
+    def complete(self, prompt: str) -> str:
+        self._calls += 1
+        if self._calls == 1:
+            return "not json"
+        return self._good_response
+
+
+class _AlwaysBadProvider(Provider):
+    def complete(self, prompt: str) -> str:
+        return "not json"
+
+
+def test_complete_with_retry_succeeds_on_second_attempt():
+    good = json.dumps([{"term": "RAG", "definition": "def", "self_relevant": False}])
+    provider = _FlakyThenGoodProvider(good)
+
+    result = _complete_with_retry(provider, "prompt", parse_extraction_response)
+
+    assert result[0]["term"] == "RAG"
+
+
+def test_complete_with_retry_raises_after_max_attempts():
+    provider = _AlwaysBadProvider()
+
+    with pytest.raises(ValueError):
+        _complete_with_retry(provider, "prompt", parse_extraction_response)
 
 
 def test_process_highlight_creates_new_concept_when_no_neighbors_exist(tmp_path: Path):
@@ -36,13 +79,15 @@ def test_process_highlight_creates_new_concept_when_no_neighbors_exist(tmp_path:
     assert result.queued == []
 
 
-def test_process_highlight_falls_back_to_related_edge_type_for_unknown_relationship(tmp_path: Path):
-    # _RELATIONSHIP_TO_EDGE_TYPE is keyed on the dedup prompt's expected
-    # relationship values, but the LLM can return anything as a raw string
-    # (_validate_shape only checks key presence, not value membership). A
-    # dict-index lookup would raise KeyError (uncaught) rather than degrading
-    # like the other malformed-LLM-output cases — this must fall back to
-    # "related" instead of crashing.
+def test_process_highlight_maps_related_to_relationship_to_related_edge_type(tmp_path: Path):
+    # Task 5 (2026-08-01): The parser now rejects invalid relationship values
+    # before they reach the pipeline (see _validate_dedup_enums in prompts.py).
+    # This test was originally verifying that the pipeline's fallback would
+    # convert unknown values to "related" — but that scenario no longer occurs.
+    # The fallback remains as defense-in-depth in _RELATIONSHIP_TO_EDGE_TYPE,
+    # but testing it requires a valid relationship value. Using "related_to"
+    # (valid) to verify the happy path; the enum validation is tested in
+    # test_concept_graph_prompts.py.
     db_path = graph_db_path(tmp_path)
     init_db(db_path)
     from app.graph_store.store import insert_concept
@@ -52,7 +97,7 @@ def test_process_highlight_falls_back_to_related_edge_type_for_unknown_relations
     provider.complete.side_effect = [
         json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False}]),
         json.dumps([{"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "high",
-                      "relationship": "an_unexpected_value", "summary": "related"}]),
+                      "relationship": "related_to", "summary": "related"}]),
     ]
 
     with patch(
@@ -63,6 +108,18 @@ def test_process_highlight_falls_back_to_related_edge_type_for_unknown_relations
     assert result.extraction_error is None
     assert len(result.edges) == 1
     assert result.edges[0].type == "related"
+
+
+def test_relationship_to_edge_type_falls_back_to_related_for_unknown_key():
+    # The defense-in-depth fallback in _RELATIONSHIP_TO_EDGE_TYPE.get(..., "related")
+    # ensures that any unmapped relationship value (which should never occur due to
+    # _validate_dedup_enums in prompts.py) gracefully converts to "related".
+    assert _RELATIONSHIP_TO_EDGE_TYPE.get("some_unmapped_key", "related") == "related"
+    assert _RELATIONSHIP_TO_EDGE_TYPE.get("unknown_relationship", "related") == "related"
+    # Also verify that mapped keys still work as expected.
+    assert _RELATIONSHIP_TO_EDGE_TYPE.get("related_to", "related") == "related"
+    assert _RELATIONSHIP_TO_EDGE_TYPE.get("extends", "related") == "extends"
+    assert _RELATIONSHIP_TO_EDGE_TYPE.get("contradicts", "related") == "contradicts"
 
 
 def test_process_highlight_creates_edge_on_high_confidence_related_distinct(tmp_path: Path):
@@ -218,6 +275,9 @@ def test_process_highlight_sets_extraction_error_on_malformed_dedup_response(tmp
     provider = MagicMock()
     provider.complete.side_effect = [
         json.dumps([{"term": "Some concept", "definition": "def", "self_relevant": False}]),
+        # Dedup response is malformed on both attempts — _complete_with_retry
+        # retries once (MAX_ATTEMPTS=2) before giving up.
+        "not json",
         "not json",
     ]
 
@@ -337,6 +397,27 @@ def test_process_highlight_sets_extraction_error_on_unknown_existing_concept_id(
     assert result.extraction_error is not None
     assert result.concepts == []
     assert len(list_concepts(db_path)) == 1
+
+
+def test_process_highlight_handles_empty_extraction_as_no_op(tmp_path: Path):
+    # Task 7 (2026-08-01): the rewritten extraction prompt permits the LLM to
+    # abstain with "[]" when nothing in the passage clears the bar. This
+    # confirms that path is a clean no-op through the whole pipeline
+    # (extraction -> _dedupe_and_insert's `for item in items` loop simply not
+    # executing) rather than a crash or spurious extraction_error.
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+
+    provider = MagicMock()
+    provider.complete.return_value = "[]"
+
+    result = process_highlight(tmp_path, "source_a", _make_highlight(), provider, "sk-embed")
+
+    assert result.extraction_error is None
+    assert result.concepts == []
+    assert result.edges == []
+    assert result.queued == []
+    assert list_concepts(db_path) == []
 
 
 from app.concept_graph.pipeline import process_source_concepts
@@ -547,3 +628,170 @@ def test_promote_concept_stores_self_relevant_true(tmp_path, monkeypatch):
     conn = sqlite3.connect(db_path)
     row = conn.execute("SELECT self_relevant FROM concepts").fetchone()
     assert row[0] == 1
+
+
+def test_new_concept_uses_web_search_result_when_available(tmp_path, monkeypatch):
+    # No existing concepts in the graph, so nearest_neighbors returns [] and
+    # the `if not neighbors:` short-circuit in _dedupe_and_insert is the "new
+    # concept" path exercised here (same path as
+    # test_process_highlight_creates_new_concept_when_no_neighbors_exist).
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr(
+        "app.concept_graph.pipeline.search_web",
+        lambda api_key, query, count=3: [
+            {"title": "AI-first triage", "url": "https://example.com/ai-first-triage",
+             "description": "A grounded, real-world description of AI-first triage."}
+        ],
+    )
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"term": "AI-first triage", "definition": "AI processes first.", "self_relevant": False}
+    ])
+
+    result = process_highlight(
+        tmp_path, "source_a", _make_highlight(), provider, "sk-embed", brave_api_key="sk-brave",
+    )
+
+    assert result.extraction_error is None
+    assert len(result.concepts) == 1
+    assert "grounded, real-world description" in result.concepts[0].definition
+    assert "https://example.com/ai-first-triage" in result.concepts[0].definition
+    assert "AI processes first." not in result.concepts[0].definition
+
+
+def test_new_concept_keeps_extraction_definition_when_no_brave_key(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    search_web_mock = MagicMock()
+    monkeypatch.setattr("app.concept_graph.pipeline.search_web", search_web_mock)
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"term": "AI-first triage", "definition": "AI processes first.", "self_relevant": False}
+    ])
+
+    result = process_highlight(
+        tmp_path, "source_a", _make_highlight(), provider, "sk-embed", brave_api_key=None,
+    )
+
+    assert result.extraction_error is None
+    assert len(result.concepts) == 1
+    assert result.concepts[0].definition == "AI processes first."
+    search_web_mock.assert_not_called()
+
+
+def test_new_concept_keeps_extraction_definition_when_web_search_returns_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.search_web", lambda api_key, query, count=3: [])
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"term": "AI-first triage", "definition": "AI processes first.", "self_relevant": False}
+    ])
+
+    result = process_highlight(
+        tmp_path, "source_a", _make_highlight(), provider, "sk-embed", brave_api_key="sk-brave",
+    )
+
+    assert result.extraction_error is None
+    assert len(result.concepts) == 1
+    assert result.concepts[0].definition == "AI processes first."
+
+
+def test_grounded_concept_persists_embedding_computed_from_grounded_definition(tmp_path, monkeypatch):
+    # Whole-branch review finding #1: `embedding = embed_text(..., item["definition"])`
+    # ran on the pre-grounding definition, but the concept got persisted with
+    # the GROUNDED definition alongside that stale embedding — desyncing
+    # nearest_neighbors matching for every grounded concept. Guard against
+    # regression by using an embed_text stub whose output depends on its
+    # input text, so a mismatch between persisted definition and persisted
+    # embedding is detectable.
+    def fake_embed_text(api_key, text):
+        return [float(len(text)), 0.0]
+
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", fake_embed_text)
+    monkeypatch.setattr(
+        "app.concept_graph.pipeline.search_web",
+        lambda api_key, query, count=3: [
+            {"title": "AI-first triage", "url": "https://example.com/ai-first-triage",
+             "description": "A grounded, real-world description of AI-first triage."}
+        ],
+    )
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"term": "AI-first triage", "definition": "AI processes first.", "self_relevant": False}
+    ])
+
+    result = process_highlight(
+        tmp_path, "source_a", _make_highlight(), provider, "sk-embed", brave_api_key="sk-brave",
+    )
+
+    from app.graph_store.store import get_concept
+    db_path = graph_db_path(tmp_path)
+    stored = get_concept(db_path, result.concepts[0].id)
+    grounded_definition = stored["definition"]
+    assert "grounded, real-world description" in grounded_definition
+
+    expected_embedding = fake_embed_text("sk-embed", grounded_definition)
+    assert stored["embedding"] == expected_embedding
+    # The bug this guards against: persisting the embedding computed from
+    # the ORIGINAL pre-grounding definition instead.
+    assert stored["embedding"] != fake_embed_text("sk-embed", "AI processes first.")
+
+
+def test_self_relevant_new_concept_skips_web_search_grounding(tmp_path, monkeypatch):
+    # Human decision: self_relevant concepts describe the user's OWN
+    # project/work, so grounding them via web search risks replacing a
+    # correct extraction-time definition with an unrelated one (e.g.
+    # "Asterism" the project vs. the star cluster).
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    search_web_mock = MagicMock(return_value=[
+        {"title": "t", "url": "https://example.com", "description": "unrelated grounded description"}
+    ])
+    monkeypatch.setattr("app.concept_graph.pipeline.search_web", search_web_mock)
+    provider = MagicMock()
+    provider.complete.return_value = json.dumps([
+        {"term": "Asterism", "definition": "The user's own knowledge-management project.", "self_relevant": True}
+    ])
+
+    result = process_highlight(
+        tmp_path, "source_a", _make_highlight(), provider, "sk-embed", brave_api_key="sk-brave",
+    )
+
+    assert result.extraction_error is None
+    assert len(result.concepts) == 1
+    assert result.concepts[0].definition == "The user's own knowledge-management project."
+    search_web_mock.assert_not_called()
+
+
+def test_related_distinct_new_concept_is_grounded_via_web_search(tmp_path, monkeypatch):
+    # Whole-branch review finding #7: grounding was applied on the
+    # "no neighbors" and judgment == "new" branches but NOT on
+    # judgment == "related_distinct", even though that branch also creates a
+    # brand-new concept per the design doc.
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "Local-first storage", "Filesystem is source of truth.", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.21])
+    monkeypatch.setattr(
+        "app.concept_graph.pipeline.search_web",
+        lambda api_key, query, count=3: [
+            {"title": "t", "url": "https://example.com/original-vs-derived",
+             "description": "A grounded description of original vs derived data."}
+        ],
+    )
+    provider = MagicMock()
+    provider.complete.side_effect = [
+        json.dumps([{"term": "Original vs. derived data model", "definition": "def", "self_relevant": False}]),
+        json.dumps([{"existing_concept_id": "c_existing", "judgment": "related_distinct", "confidence": "high",
+                      "relationship": "extends", "summary": "related, note confirms"}]),
+    ]
+
+    result = process_highlight(
+        tmp_path, "source_a", _make_highlight(note="same idea but more specific"), provider, "sk-embed",
+        brave_api_key="sk-brave",
+    )
+
+    assert result.extraction_error is None
+    assert len(result.concepts) == 1
+    assert "grounded description of original vs derived data" in result.concepts[0].definition
+    assert result.concepts[0].definition != "def"

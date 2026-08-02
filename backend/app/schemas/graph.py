@@ -17,6 +17,7 @@ class ConceptNode(BaseModel):
     term: str
     definition: str
     self_relevant: bool = False
+    golden: bool = False
 
 
 class Edge(BaseModel):

@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from app.repositories.config_repository import AgentConfig, ConfigError, load_config, load_embeddings_api_key
+from app.repositories.config_repository import (
+    AgentConfig,
+    ConfigError,
+    load_config,
+    load_embeddings_api_key,
+    load_brave_api_key,
+)
 
 
 def _write_config(data_root: Path, data: dict) -> None:
@@ -77,3 +83,19 @@ def test_load_embeddings_api_key_raises_when_field_missing(tmp_path: Path):
     (tmp_path / "config.json").write_text(json.dumps({"strategy": "api-key", "provider": "anthropic", "api_key": "fake"}))
     with pytest.raises(ConfigError):
         load_embeddings_api_key(tmp_path)
+
+
+def test_load_brave_api_key_returns_none_when_config_missing(tmp_path: Path):
+    assert load_brave_api_key(tmp_path) is None
+
+
+def test_load_brave_api_key_returns_none_when_field_unset(tmp_path: Path):
+    (tmp_path / "config.json").write_text(json.dumps({"strategy": "api-key", "provider": "anthropic", "api_key": "fake"}))
+    assert load_brave_api_key(tmp_path) is None
+
+
+def test_load_brave_api_key_returns_key_when_set(tmp_path: Path):
+    (tmp_path / "config.json").write_text(
+        json.dumps({"strategy": "api-key", "provider": "anthropic", "api_key": "fake", "brave_api_key": "brave-key"})
+    )
+    assert load_brave_api_key(tmp_path) == "brave-key"

@@ -40,7 +40,10 @@ def _ensure_db():
 def get_graph_endpoint() -> GraphResponse:
     db_path = _ensure_db()
     nodes = [
-        ConceptNode(id=c["id"], term=c["term"], definition=c["definition"], self_relevant=bool(c["self_relevant"]))
+        ConceptNode(
+            id=c["id"], term=c["term"], definition=c["definition"],
+            self_relevant=bool(c["self_relevant"]), golden=bool(c["golden"]),
+        )
         for c in list_concepts(db_path)
     ]
     node_ids = {n.id for n in nodes}
