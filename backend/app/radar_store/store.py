@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS radar_items (
 # it's deliberately left off rather than seeding a fragile unofficial mirror.
 DEFAULT_FEED_SOURCES = [
     ("OpenAI Blog", "https://openai.com/news/rss.xml"),
-    ("LangChain Blog", "https://blog.langchain.dev/rss/"),
+    ("LangChain Blog", "https://www.langchain.com/blog/rss.xml"),
+    ("OpenAI Cookbook", "https://developers.openai.com/rss.xml"),
 ]
 
 
