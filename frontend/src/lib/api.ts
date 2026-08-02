@@ -305,6 +305,33 @@ export async function getGraph(): Promise<GraphData> {
   return res.json();
 }
 
+export interface ReviewQueueEntry {
+  id: string;
+  candidate_concept_id: string;
+  existing_concept_id: string;
+  llm_judgment: string;
+  proposed_edge_type: "related" | "contradicts" | "extends";
+  created_at: string;
+}
+
+export async function getReviewQueue(): Promise<ReviewQueueEntry[]> {
+  const res = await fetch(`${BACKEND_URL}/graph/review-queue`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load review queue"));
+  return res.json();
+}
+
+export async function resolveReviewQueueEntry(
+  entryId: string,
+  action: "merge" | "keep_separate"
+): Promise<void> {
+  const res = await fetch(`${BACKEND_URL}/graph/review-queue/${entryId}/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to resolve review queue entry"));
+}
+
 export async function getFeedback(sourceId: string): Promise<Feedback[]> {
   const res = await fetch(`${BACKEND_URL}/sources/${sourceId}/feedback`, { cache: "no-store" });
   if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load feedback"));
