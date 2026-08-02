@@ -163,6 +163,14 @@ def list_boost_topics(db_path: Path) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_boost_topic(db_path: Path, topic_id: str) -> dict | None:
+    """Get a single boost topic by ID."""
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM boost_topics WHERE id = ?", (topic_id,)).fetchone()
+        return dict(row) if row else None
+
+
 def delete_boost_topic(db_path: Path, topic_id: str) -> None:
     """Delete a boost topic by ID."""
     with _connect(db_path) as conn:

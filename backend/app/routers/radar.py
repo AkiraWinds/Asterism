@@ -12,6 +12,7 @@ from app.core.config import get_data_root
 from app.radar_store.store import (
     delete_boost_topic,
     delete_feed_source,
+    get_boost_topic,
     get_feed_source,
     init_db,
     insert_boost_topic,
@@ -73,6 +74,8 @@ def patch_source_endpoint(source_id: str, payload: FeedSourceUpdateRequest) -> F
 @router.delete("/sources/{source_id}", status_code=204)
 def delete_source_endpoint(source_id: str):
     db_path = _ensure_db()
+    if get_feed_source(db_path, source_id) is None:
+        raise HTTPException(status_code=404, detail="Feed source not found")
     delete_feed_source(db_path, source_id)
     return Response(status_code=204)
 
@@ -95,5 +98,7 @@ def post_boost_topic_endpoint(payload: BoostTopicCreateRequest) -> BoostTopic:
 @router.delete("/boost-topics/{topic_id}", status_code=204)
 def delete_boost_topic_endpoint(topic_id: str):
     db_path = _ensure_db()
+    if get_boost_topic(db_path, topic_id) is None:
+        raise HTTPException(status_code=404, detail="Boost topic not found")
     delete_boost_topic(db_path, topic_id)
     return Response(status_code=204)

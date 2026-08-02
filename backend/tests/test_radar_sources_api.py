@@ -53,6 +53,22 @@ def test_delete_source(tmp_path: Path, monkeypatch):
     assert not any(s["id"] == created["id"] for s in listed)
 
 
+def test_delete_source_404_on_missing_id(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+
+    response = client.delete("/radar/sources/nonexistent-id")
+
+    assert response.status_code == 404
+
+
+def test_delete_boost_topic_404_on_missing_id(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+
+    response = client.delete("/radar/boost-topics/nonexistent-id")
+
+    assert response.status_code == 404
+
+
 def test_boost_topics_crud(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
 
