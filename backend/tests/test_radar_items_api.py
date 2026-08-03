@@ -151,3 +151,52 @@ def test_add_item_returns_502_on_fetch_error(tmp_path: Path, monkeypatch):
     # Item must remain 'new' and safely retryable, not corrupted.
     ids = [i["id"] for i in client.get("/radar").json()["items"]]
     assert ids == ["i1"]
+
+
+def test_add_item_returns_409_if_already_claimed(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    _write_config(tmp_path)
+    db_path = radar_db_path(tmp_path)
+    init_db(db_path)
+    insert_radar_item(
+        db_path, item_id="i1", source_id="seed_0", url="https://example.com/a", title="A", summary="s",
+        published_at=None, relevance_score=0.8, quality_score=0.5, reasoning="r",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    from app.radar_store.store import claim_radar_item
+
+    # Simulate a first in-flight request already having claimed the item.
+    assert claim_radar_item(db_path, "i1") is True
+
+    response = client.post("/radar/items/i1/add")
+
+    assert response.status_code == 409
+
+
+def test_add_item_rolls_back_to_new_on_fetch_failure(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    _write_config(tmp_path)
+    db_path = radar_db_path(tmp_path)
+    init_db(db_path)
+    insert_radar_item(
+        db_path, item_id="i1", source_id="seed_0", url="https://example.com/a", title="A", summary="s",
+        published_at=None, relevance_score=0.8, quality_score=0.5, reasoning="r",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    from app.ingestion.fetcher import FetchError
+
+    def _raise_fetch_error(url):
+        raise FetchError("boom")
+
+    monkeypatch.setattr("app.routers.radar.fetch_url", _raise_fetch_error)
+
+    response = client.post("/radar/items/i1/add")
+
+    assert response.status_code == 502
+
+    from app.radar_store.store import get_radar_item
+
+    # Must roll back to 'new', not get stuck in 'adding' forever.
+    assert get_radar_item(db_path, "i1")["status"] == "new"

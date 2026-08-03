@@ -78,3 +78,29 @@ def test_update_radar_item_status(tmp_path: Path):
     item = get_radar_item(db_path, "i1")
     assert item["status"] == "added"
     assert item["added_source_id"] == "src123"
+
+
+def test_claim_radar_item_is_atomic(tmp_path: Path):
+    db_path = radar_db_path(tmp_path)
+    init_db(db_path)
+    insert_radar_item(
+        db_path, item_id="i1", source_id="seed_0", url="https://example.com/a", title="A", summary="s",
+        published_at=None, relevance_score=0.8, quality_score=0.6, reasoning="r",
+        created_at="2026-08-02T00:00:00+00:00",
+    )
+
+    from app.radar_store.store import claim_radar_item
+
+    assert claim_radar_item(db_path, "i1") is True
+    assert get_radar_item(db_path, "i1")["status"] == "adding"
+    # Second claim on the same item must fail — it's no longer 'new'.
+    assert claim_radar_item(db_path, "i1") is False
+
+
+def test_claim_radar_item_fails_on_missing_item(tmp_path: Path):
+    db_path = radar_db_path(tmp_path)
+    init_db(db_path)
+
+    from app.radar_store.store import claim_radar_item
+
+    assert claim_radar_item(db_path, "nonexistent") is False

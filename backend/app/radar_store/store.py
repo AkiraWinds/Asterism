@@ -229,6 +229,21 @@ def update_radar_item_status(db_path: Path, item_id: str, *, status: str, added_
         conn.commit()
 
 
+def claim_radar_item(db_path: Path, item_id: str) -> bool:
+    """Atomically transition a radar item from 'new' to 'adding'. Returns
+    True iff this call won the claim (exactly one row updated) — False means
+    the item doesn't exist or is already adding/added/dismissed/rejected.
+    This is the concurrency guard for POST /radar/items/{id}/add: two
+    simultaneous requests for the same item_id can both read status='new',
+    but only one UPDATE ... WHERE status = 'new' can actually match a row."""
+    with _connect(db_path) as conn:
+        cursor = conn.execute(
+            "UPDATE radar_items SET status = 'adding' WHERE id = ? AND status = 'new'", (item_id,)
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+
+
 def list_all_radar_item_urls(db_path: Path) -> set[str]:
     """Get all URLs in the radar_items table (used for dedup checking)."""
     with _connect(db_path) as conn:
