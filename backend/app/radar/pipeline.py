@@ -34,8 +34,9 @@ logger = logging.getLogger(__name__)
 
 # Coarse-filtered candidates that still judge as low-relevance (e.g. on a
 # fresh install with an empty concept graph and no boost topics, where every
-# coarse score is 0.0) are noise, not a recommendation — don't persist them
-# regardless of how they ranked in the shortlist.
+# coarse score is 0.0) are noise, not a recommendation — persisted with
+# status='rejected' so they're excluded from GET /radar but retained for
+# cross-run dedup, regardless of how they ranked in the shortlist.
 RADAR_RELEVANCE_FLOOR = 0.15
 
 
@@ -61,8 +62,9 @@ def refresh_radar(data_root: Path, provider: Provider, embeddings_api_key: str) 
       2. Coarse-filter the COMBINED candidate pool from every source ONCE,
          then fetch full content + LLM-judge just that one shortlist (at
          most top_n items total per run, not top_n per source). Items whose
-         judged relevance falls below RADAR_RELEVANCE_FLOOR are dropped
-         rather than persisted. A per-item failure is logged and skipped; a
+         judged relevance falls below RADAR_RELEVANCE_FLOOR are persisted
+         with status='rejected' (excluded from GET /radar, but kept for
+         cross-run dedup) rather than dropped. A per-item failure is logged and skipped; a
          systemic provider misconfiguration surfaced while judging is
          additionally recorded against that item's source for visibility,
          but still doesn't stop the rest of the shortlist from being judged.
@@ -137,6 +139,24 @@ def refresh_radar(data_root: Path, provider: Provider, embeddings_api_key: str) 
             continue
 
         if judgment["relevance_score"] < RADAR_RELEVANCE_FLOOR:
+            # Persist as 'rejected' rather than dropping it — list_new_radar_items
+            # only returns status='new', so GET /radar is unaffected, but this
+            # keeps the item in list_all_radar_item_urls's dedup set so it's never
+            # re-fetched/re-embedded/re-judged by the LLM on a future refresh.
+            insert_radar_item(
+                db_path,
+                item_id=uuid.uuid4().hex[:12],
+                source_id=item["_source_id"],
+                url=item["url"],
+                title=item["title"],
+                summary=item.get("summary", ""),
+                published_at=item.get("published_at"),
+                relevance_score=judgment["relevance_score"],
+                quality_score=judgment["quality_score"],
+                reasoning=judgment["reasoning"],
+                created_at=_now_iso(),
+                status="rejected",
+            )
             continue
 
         inserted = insert_radar_item(

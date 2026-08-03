@@ -74,7 +74,18 @@ Per-source streaming chat (SSE), with multiple named conversations per source an
 
 ### Radar — proactive content discovery
 
-A daily-refreshable feed of RSS-sourced recommendations, ranked by relevance (concept-graph embedding similarity + LLM judgment against your saved boost topics) and quality (judged from full article text, not a hardcoded per-source trust score) — kept as two separate scores, never averaged. One click adds an item straight into your library; dismiss drops it. Feed sources and boost topics are fully user-editable (add/delete), seeded with a couple of defaults on first run. Not scheduled automatically yet — refresh from the `/radar` page or `backend/scripts/radar_refresh.py` (cron/launchd), matching the wiki-compile pattern.
+A daily-refreshable feed of RSS-sourced recommendations, ranked by relevance (concept-graph embedding similarity + LLM judgment against your saved boost topics) and quality (judged from full article text, not a hardcoded per-source trust score) — kept as two separate scores, never averaged. One click adds an item straight into your library; dismiss drops it. Feed sources and boost topics are fully user-editable (add/delete), seeded with a couple of defaults on first run.
+
+Refresh manually from the `/radar` page, or schedule it via launchd (macOS):
+
+```bash
+cp backend/scripts/com.asterism.radar-refresh.plist.template ~/Library/LaunchAgents/com.asterism.radar-refresh.plist
+# Edit the copy: replace __PYTHON_BIN__ (e.g. `which python3` inside your uv venv),
+# __REPO_ROOT__, __ASTERISM_DATA_ROOT__, and __HOME__ with your actual paths.
+launchctl load ~/Library/LaunchAgents/com.asterism.radar-refresh.plist
+```
+
+Runs once daily (default 08:00, edit `StartCalendarInterval` in the plist to change it). Unlike cron, launchd fires a missed run on next wake if the machine was asleep at the scheduled time. Output/errors land in `~/Library/Logs/asterism-radar-refresh.log`. The same template pattern can be copied for `backend/scripts/wiki_compile.py`.
 
 ## Get started
 

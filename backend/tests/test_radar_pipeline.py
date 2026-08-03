@@ -187,6 +187,39 @@ def test_refresh_radar_skips_items_below_relevance_floor(tmp_path: Path, monkeyp
     assert list_new_radar_items(db_path, cutoff_iso="2020-01-01T00:00:00+00:00") == []
 
 
+def test_refresh_radar_persists_below_floor_items_as_rejected(tmp_path: Path, monkeypatch):
+    """A below-floor item must still be written to radar_items (status='rejected')
+    so it's excluded from cross-run dedup re-fetching, instead of being silently
+    dropped and re-judged by the LLM on every future refresh."""
+    db_path = _setup(tmp_path)
+    insert_feed_source(db_path, "s1", "Source One", "https://one.example.com/rss", "2026-08-02T00:00:00+00:00")
+
+    monkeypatch.setattr(
+        "app.radar.pipeline.fetch_feed_items",
+        lambda url: [{"url": "https://one.example.com/post", "title": "A Post", "summary": "About agents.", "published_at": None}],
+    )
+    monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
+    monkeypatch.setattr(
+        "app.radar.pipeline.coarse_filter",
+        lambda graph_db_path, api_key, items, boost_terms, top_n=20: [{**i, "_coarse_score": 0.0} for i in items],
+    )
+    monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url: "<html>full article body</html>")
+    monkeypatch.setattr("app.radar.pipeline.extract_content", lambda html, url, data_root: "full article body")
+    monkeypatch.setattr(
+        "app.radar.pipeline.judge_item",
+        lambda provider, text, source_name, terms: {"relevance_score": 0.05, "quality_score": 0.7, "reasoning": "Not really relevant."},
+    )
+
+    refresh_radar(tmp_path, _StubProvider(), "fake-embed-key")
+
+    from app.radar_store.store import list_all_radar_item_urls
+
+    # Still excluded from GET /radar (list_new_radar_items filters status='new')...
+    assert list_new_radar_items(db_path, cutoff_iso="2020-01-01T00:00:00+00:00") == []
+    # ...but present for cross-run dedup, so it's never re-judged again.
+    assert "https://one.example.com/post" in list_all_radar_item_urls(db_path)
+
+
 def test_refresh_radar_judge_provider_missing_error_isolated_to_source(tmp_path: Path, monkeypatch):
     """judge_item raising ProviderMissingError/ProviderConfigError signals a
     systemic provider misconfiguration, not a per-item content failure — it
