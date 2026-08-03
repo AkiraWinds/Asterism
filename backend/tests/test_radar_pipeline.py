@@ -34,14 +34,14 @@ def test_refresh_radar_happy_path(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(
         "app.radar.pipeline.fetch_feed_items",
-        lambda url: [{"url": "https://good.example.com/post", "title": "A Post", "summary": "About agents.", "published_at": None}],
+        lambda url, **kwargs: [{"url": "https://good.example.com/post", "title": "A Post", "summary": "About agents.", "published_at": None}],
     )
     monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
     monkeypatch.setattr(
         "app.radar.pipeline.coarse_filter",
         lambda graph_db_path, api_key, items, boost_terms, top_n=20: [{**i, "_coarse_score": 0.9} for i in items],
     )
-    monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url: "<html>full article body</html>")
+    monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url, **kwargs: "<html>full article body</html>")
     monkeypatch.setattr("app.radar.pipeline.extract_content", lambda html, url, data_root: "full article body")
     monkeypatch.setattr(
         "app.radar.pipeline.judge_item",
@@ -64,7 +64,7 @@ def test_refresh_radar_one_bad_source_does_not_block_others(tmp_path: Path, monk
     insert_feed_source(db_path, "bad", "Bad Source", "https://bad.example.com/rss", "2026-08-02T00:00:00+00:00")
     insert_feed_source(db_path, "good", "Good Source", "https://good.example.com/rss", "2026-08-02T00:00:00+00:00")
 
-    def _fetch(url):
+    def _fetch(url, **kwargs):
         if "bad" in url:
             raise FeedFetchError("feed is broken")
         return []
@@ -87,7 +87,7 @@ def test_refresh_radar_disabled_source_is_skipped(tmp_path: Path, monkeypatch):
     update_feed_source(db_path, "s1", enabled=False)
 
     fetch_called = []
-    monkeypatch.setattr("app.radar.pipeline.fetch_feed_items", lambda url: fetch_called.append(url) or [])
+    monkeypatch.setattr("app.radar.pipeline.fetch_feed_items", lambda url, **kwargs: fetch_called.append(url) or [])
 
     summary = refresh_radar(tmp_path, _StubProvider(), "fake-embed-key")
 
@@ -107,7 +107,7 @@ def test_refresh_radar_coarse_filter_runtime_error_does_not_abort_run(tmp_path: 
     insert_feed_source(db_path, "s1", "Source One", "https://one.example.com/rss", "2026-08-02T00:00:00+00:00")
     insert_feed_source(db_path, "s2", "Source Two", "https://two.example.com/rss", "2026-08-02T00:00:00+00:00")
 
-    def _fetch(url):
+    def _fetch(url, **kwargs):
         return [{"url": f"{url}/post", "title": "A Post", "summary": "About agents.", "published_at": None}]
 
     def _coarse_filter(graph_db_path, api_key, items, boost_terms, top_n=20):
@@ -134,7 +134,7 @@ def test_refresh_radar_calls_coarse_filter_once_per_run_not_per_source(tmp_path:
     insert_feed_source(db_path, "s1", "Source One", "https://one.example.com/rss", "2026-08-02T00:00:00+00:00")
     insert_feed_source(db_path, "s2", "Source Two", "https://two.example.com/rss", "2026-08-02T00:00:00+00:00")
 
-    def _fetch(url):
+    def _fetch(url, **kwargs):
         return [{"url": f"{url}/post", "title": "A Post", "summary": "About agents.", "published_at": None}]
 
     call_count = {"n": 0}
@@ -146,7 +146,7 @@ def test_refresh_radar_calls_coarse_filter_once_per_run_not_per_source(tmp_path:
     monkeypatch.setattr("app.radar.pipeline.fetch_feed_items", _fetch)
     monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
     monkeypatch.setattr("app.radar.pipeline.coarse_filter", _coarse_filter)
-    monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url: "<html>full article body</html>")
+    monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url, **kwargs: "<html>full article body</html>")
     monkeypatch.setattr("app.radar.pipeline.extract_content", lambda html, url, data_root: "full article body")
     monkeypatch.setattr(
         "app.radar.pipeline.judge_item",
@@ -167,14 +167,14 @@ def test_refresh_radar_skips_items_below_relevance_floor(tmp_path: Path, monkeyp
 
     monkeypatch.setattr(
         "app.radar.pipeline.fetch_feed_items",
-        lambda url: [{"url": "https://one.example.com/post", "title": "A Post", "summary": "About agents.", "published_at": None}],
+        lambda url, **kwargs: [{"url": "https://one.example.com/post", "title": "A Post", "summary": "About agents.", "published_at": None}],
     )
     monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
     monkeypatch.setattr(
         "app.radar.pipeline.coarse_filter",
         lambda graph_db_path, api_key, items, boost_terms, top_n=20: [{**i, "_coarse_score": 0.0} for i in items],
     )
-    monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url: "<html>full article body</html>")
+    monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url, **kwargs: "<html>full article body</html>")
     monkeypatch.setattr("app.radar.pipeline.extract_content", lambda html, url, data_root: "full article body")
     monkeypatch.setattr(
         "app.radar.pipeline.judge_item",
@@ -196,14 +196,14 @@ def test_refresh_radar_persists_below_floor_items_as_rejected(tmp_path: Path, mo
 
     monkeypatch.setattr(
         "app.radar.pipeline.fetch_feed_items",
-        lambda url: [{"url": "https://one.example.com/post", "title": "A Post", "summary": "About agents.", "published_at": None}],
+        lambda url, **kwargs: [{"url": "https://one.example.com/post", "title": "A Post", "summary": "About agents.", "published_at": None}],
     )
     monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
     monkeypatch.setattr(
         "app.radar.pipeline.coarse_filter",
         lambda graph_db_path, api_key, items, boost_terms, top_n=20: [{**i, "_coarse_score": 0.0} for i in items],
     )
-    monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url: "<html>full article body</html>")
+    monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url, **kwargs: "<html>full article body</html>")
     monkeypatch.setattr("app.radar.pipeline.extract_content", lambda html, url, data_root: "full article body")
     monkeypatch.setattr(
         "app.radar.pipeline.judge_item",
@@ -229,7 +229,7 @@ def test_refresh_radar_judge_provider_missing_error_isolated_to_source(tmp_path:
     insert_feed_source(db_path, "s1", "Misconfigured Source", "https://misconfigured.example.com/rss", "2026-08-02T00:00:00+00:00")
     insert_feed_source(db_path, "s2", "Good Source", "https://good.example.com/rss", "2026-08-02T00:00:00+00:00")
 
-    def _fetch(url):
+    def _fetch(url, **kwargs):
         return [{"url": f"{url}/post", "title": "A Post", "summary": "About agents.", "published_at": None}]
 
     def _judge_item(provider, text, source_name, terms):
@@ -243,7 +243,7 @@ def test_refresh_radar_judge_provider_missing_error_isolated_to_source(tmp_path:
         "app.radar.pipeline.coarse_filter",
         lambda graph_db_path, api_key, items, boost_terms, top_n=20: [{**i, "_coarse_score": 0.9} for i in items],
     )
-    monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url: "<html>full article body</html>")
+    monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url, **kwargs: "<html>full article body</html>")
     monkeypatch.setattr("app.radar.pipeline.extract_content", lambda html, url, data_root: "full article body")
     monkeypatch.setattr("app.radar.pipeline.judge_item", _judge_item)
 

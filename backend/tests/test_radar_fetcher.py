@@ -23,7 +23,7 @@ _SAMPLE_RSS = """<?xml version="1.0"?>
 
 
 def test_fetch_feed_items_parses_entries(monkeypatch):
-    monkeypatch.setattr("app.radar.fetcher.fetch_url", lambda url: _SAMPLE_RSS)
+    monkeypatch.setattr("app.radar.fetcher.fetch_url", lambda url, **kwargs: _SAMPLE_RSS)
 
     items = fetch_feed_items("https://example.com/rss.xml")
 
@@ -38,7 +38,7 @@ def test_fetch_feed_items_parses_entries(monkeypatch):
 def test_fetch_feed_items_raises_on_fetch_error(monkeypatch):
     from app.ingestion.fetcher import FetchError
 
-    def _raise(url):
+    def _raise(url, **kwargs):
         raise FetchError("connection refused")
 
     monkeypatch.setattr("app.radar.fetcher.fetch_url", _raise)
@@ -48,7 +48,7 @@ def test_fetch_feed_items_raises_on_fetch_error(monkeypatch):
 
 
 def test_fetch_feed_items_raises_on_unparseable_content(monkeypatch):
-    monkeypatch.setattr("app.radar.fetcher.fetch_url", lambda url: "not xml at all, just plain text")
+    monkeypatch.setattr("app.radar.fetcher.fetch_url", lambda url, **kwargs: "not xml at all, just plain text")
 
     with pytest.raises(FeedFetchError):
         fetch_feed_items("https://example.com/rss.xml")
@@ -68,7 +68,7 @@ def test_fetch_feed_items_wraps_body_in_bytesio_before_parsing(monkeypatch):
     # produces a bozo/no-entries result), so it never actually caught a
     # regression.
     monkeypatch.setattr(
-        "app.radar.fetcher.fetch_url", lambda url: "http://169.254.169.254/latest/meta-data/"
+        "app.radar.fetcher.fetch_url", lambda url, **kwargs: "http://169.254.169.254/latest/meta-data/"
     )
 
     captured = {}
