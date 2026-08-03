@@ -122,3 +122,16 @@ def test_load_authenticated_hosts_returns_configured_map(tmp_path: Path):
         },
     )
     assert load_authenticated_hosts(tmp_path) == {"medium.com": "sid=abc; uid=def"}
+
+
+def test_load_authenticated_hosts_lowercases_hostname_keys(tmp_path: Path):
+    _write_config(
+        tmp_path,
+        {
+            "strategy": "api-key",
+            "provider": "anthropic",
+            "api_key": "fake",
+            "authenticated_hosts": {"Medium.COM": "sid=abc; uid=def"},
+        },
+    )
+    assert load_authenticated_hosts(tmp_path) == {"medium.com": "sid=abc; uid=def"}

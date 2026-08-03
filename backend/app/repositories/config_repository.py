@@ -107,4 +107,5 @@ def load_authenticated_hosts(data_root: Path) -> dict[str, str]:
         data = json.loads(config_path.read_text())
     except json.JSONDecodeError:
         return {}
-    return data.get("authenticated_hosts") or {}
+    hosts = data.get("authenticated_hosts") or {}
+    return {hostname.lower(): cookie for hostname, cookie in hosts.items()}
