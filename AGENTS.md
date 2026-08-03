@@ -39,10 +39,11 @@ A single `Provider` interface (`base.py`) with 4 implementations, selected by `c
   "strategy": "cli",
   "provider": "claude",
   "api_key": null,
-  "embeddings_api_key": "sk-..."
+  "embeddings_api_key": "sk-...",
+  "authenticated_hosts": { "medium.com": "sid=abc; uid=def" }
 }
 ```
-`strategy` is `"cli"` or `"api-key"`; `provider` must match the strategy (see `CLI_PROVIDERS`/`API_KEY_PROVIDERS` in `config_repository.py`). `embeddings_api_key` is separate and always required for the knowledge graph feature — Anthropic has no embeddings endpoint and CLI providers can't embed at all, so embedding calls always go to OpenAI directly regardless of the chat/completion provider chosen above.
+`strategy` is `"cli"` or `"api-key"`; `provider` must match the strategy (see `CLI_PROVIDERS`/`API_KEY_PROVIDERS` in `config_repository.py`). `embeddings_api_key` is separate and always required for the knowledge graph feature — Anthropic has no embeddings endpoint and CLI providers can't embed at all, so embedding calls always go to OpenAI directly regardless of the chat/completion provider chosen above. `authenticated_hosts` is an optional per-host session cookie map, disk-only, no UI/API — used to fetch content that requires login (e.g. a paid Medium membership) with the user's own browser session.
 
 Keep provider-specific spawn/protocol details (e.g. Codex's `app-server --stdio` lifecycle) inside the provider layer — core app code calls the shared `Provider` interface, never `claude`/`codex` directly.
 

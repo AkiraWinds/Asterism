@@ -14,8 +14,6 @@ from app.ingestion.fetcher import (
     TooManyRedirectsError,
     fetch_url,
 )
-from app.repositories.config_repository import load_authenticated_hosts  # noqa: F401  (used indirectly via config.json below)
-
 PUBLIC_ADDR_INFO = [(None, None, None, None, ("93.184.216.34", 0))]
 
 
@@ -226,6 +224,23 @@ def test_fetch_url_does_not_carry_cookie_across_redirect_to_different_host(mock_
     second_call_headers = mock_client.get.call_args_list[1].kwargs["headers"]
     assert first_call_headers["Cookie"] == "sid=abc; uid=def"
     assert "Cookie" not in second_call_headers
+
+
+@patch("app.ingestion.fetcher.socket.getaddrinfo", return_value=PUBLIC_ADDR_INFO)
+def test_fetch_url_attaches_cookie_when_redirect_lands_on_configured_host(mock_getaddrinfo, tmp_path):
+    data_root = _write_authenticated_hosts_config(tmp_path, {"medium.com": "sid=abc; uid=def"})
+    redirect_response = _response(
+        status_code=302, url="https://short.example.com/x", location="https://medium.com/@user/post"
+    )
+    final_response = _response(status_code=200, text="<html>member content</html>", url="https://medium.com/@user/post")
+    mock_client = _mock_client([redirect_response, final_response])
+    with patch("app.ingestion.fetcher.httpx.Client", return_value=mock_client):
+        fetch_url("https://short.example.com/x", data_root=data_root)
+
+    first_call_headers = mock_client.get.call_args_list[0].kwargs["headers"]
+    second_call_headers = mock_client.get.call_args_list[1].kwargs["headers"]
+    assert "Cookie" not in first_call_headers
+    assert second_call_headers["Cookie"] == "sid=abc; uid=def"
 
 
 @patch("app.ingestion.fetcher.socket.getaddrinfo", return_value=PUBLIC_ADDR_INFO)

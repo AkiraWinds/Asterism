@@ -118,6 +118,14 @@ or, for a direct API key instead of a CLI session:
 
 The knowledge graph's embedding step always calls OpenAI directly (Anthropic has no embeddings endpoint, and CLI providers can't embed at all) — set `"embeddings_api_key"` in the same `config.json` for that feature to work.
 
+To fetch content that requires login (e.g. a paid Medium membership) using your own browser session instead of an anonymous request, add an `"authenticated_hosts"` map to `config.json`: hostname -> a raw `Cookie` header string copied from your browser's dev tools. There is no UI or API for this field — it's edited by hand in `config.json`:
+
+```json
+{ "strategy": "cli", "provider": "claude", "authenticated_hosts": { "medium.com": "sid=abc; uid=def" } }
+```
+
+**Warning**: a session cookie is a live login credential, equivalent to your password for that site. Never commit it or share it. It will typically expire and need to be refreshed by copying a fresh cookie value from your browser.
+
 **Frontend** (Next.js, port 3000):
 
 ```bash

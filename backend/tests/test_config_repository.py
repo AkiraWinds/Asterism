@@ -135,3 +135,16 @@ def test_load_authenticated_hosts_lowercases_hostname_keys(tmp_path: Path):
         },
     )
     assert load_authenticated_hosts(tmp_path) == {"medium.com": "sid=abc; uid=def"}
+
+
+def test_load_authenticated_hosts_returns_empty_dict_when_not_a_dict(tmp_path: Path):
+    _write_config(
+        tmp_path,
+        {
+            "strategy": "api-key",
+            "provider": "anthropic",
+            "api_key": "fake",
+            "authenticated_hosts": "not-a-dict",
+        },
+    )
+    assert load_authenticated_hosts(tmp_path) == {}

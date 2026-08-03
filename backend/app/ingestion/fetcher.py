@@ -43,7 +43,7 @@ class TooManyRedirectsError(FetchError):
 
 
 def _check_login_required(hostname: str, authenticated_hosts: dict[str, str]) -> None:
-    if hostname in LOGIN_REQUIRED_HOSTS and hostname not in authenticated_hosts:
+    if hostname in LOGIN_REQUIRED_HOSTS and not authenticated_hosts.get(hostname):
         raise LoginRequiredError(
             f"{hostname} requires login to view content. Please capture it with the "
             "Chrome Extension while logged in."
