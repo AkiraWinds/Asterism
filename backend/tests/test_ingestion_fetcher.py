@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -12,6 +14,7 @@ from app.ingestion.fetcher import (
     TooManyRedirectsError,
     fetch_url,
 )
+from app.repositories.config_repository import load_authenticated_hosts  # noqa: F401  (used indirectly via config.json below)
 
 PUBLIC_ADDR_INFO = [(None, None, None, None, ("93.184.216.34", 0))]
 
@@ -174,3 +177,84 @@ def test_fetch_url_raises_fetch_error_on_dns_failure():
             with pytest.raises(FetchError):
                 fetch_url("https://does-not-resolve.invalid/")
     mock_ctor.assert_not_called()
+
+
+# Tests for authenticated host cookie attachment
+
+def _write_authenticated_hosts_config(tmp_path: Path, hosts: dict) -> Path:
+    (tmp_path / "config.json").write_text(json.dumps({"authenticated_hosts": hosts}))
+    return tmp_path
+
+
+@patch("app.ingestion.fetcher.socket.getaddrinfo", return_value=PUBLIC_ADDR_INFO)
+def test_fetch_url_attaches_cookie_for_configured_host(mock_getaddrinfo, tmp_path):
+    data_root = _write_authenticated_hosts_config(tmp_path, {"medium.com": "sid=abc; uid=def"})
+    response = _response(status_code=200, text="<html>member content</html>", url="https://medium.com/@user/post")
+    mock_client = _mock_client([response])
+    with patch("app.ingestion.fetcher.httpx.Client", return_value=mock_client):
+        result = fetch_url("https://medium.com/@user/post", data_root=data_root)
+
+    assert result == "<html>member content</html>"
+    _, kwargs = mock_client.get.call_args
+    assert kwargs["headers"]["Cookie"] == "sid=abc; uid=def"
+
+
+@patch("app.ingestion.fetcher.socket.getaddrinfo", return_value=PUBLIC_ADDR_INFO)
+def test_fetch_url_omits_cookie_for_unconfigured_host(mock_getaddrinfo, tmp_path):
+    data_root = _write_authenticated_hosts_config(tmp_path, {"medium.com": "sid=abc; uid=def"})
+    response = _response(status_code=200, text="<html>hi</html>", url="https://example.com/article")
+    mock_client = _mock_client([response])
+    with patch("app.ingestion.fetcher.httpx.Client", return_value=mock_client):
+        fetch_url("https://example.com/article", data_root=data_root)
+
+    _, kwargs = mock_client.get.call_args
+    assert "Cookie" not in kwargs["headers"]
+
+
+@patch("app.ingestion.fetcher.socket.getaddrinfo", return_value=PUBLIC_ADDR_INFO)
+def test_fetch_url_does_not_carry_cookie_across_redirect_to_different_host(mock_getaddrinfo, tmp_path):
+    data_root = _write_authenticated_hosts_config(tmp_path, {"medium.com": "sid=abc; uid=def"})
+    redirect_response = _response(
+        status_code=302, url="https://medium.com/short", location="https://cdn-other.example.com/article"
+    )
+    final_response = _response(status_code=200, text="<html>final</html>", url="https://cdn-other.example.com/article")
+    mock_client = _mock_client([redirect_response, final_response])
+    with patch("app.ingestion.fetcher.httpx.Client", return_value=mock_client):
+        fetch_url("https://medium.com/short", data_root=data_root)
+
+    first_call_headers = mock_client.get.call_args_list[0].kwargs["headers"]
+    second_call_headers = mock_client.get.call_args_list[1].kwargs["headers"]
+    assert first_call_headers["Cookie"] == "sid=abc; uid=def"
+    assert "Cookie" not in second_call_headers
+
+
+@patch("app.ingestion.fetcher.socket.getaddrinfo", return_value=PUBLIC_ADDR_INFO)
+def test_fetch_url_without_data_root_never_attaches_cookie(mock_getaddrinfo):
+    response = _response(status_code=200, text="<html>hi</html>", url="https://medium.com/@user/post")
+    mock_client = _mock_client([response])
+    with patch("app.ingestion.fetcher.httpx.Client", return_value=mock_client):
+        fetch_url("https://medium.com/@user/post")
+
+    _, kwargs = mock_client.get.call_args
+    assert "Cookie" not in kwargs["headers"]
+
+
+def test_fetch_url_raises_login_required_for_x_dot_com_even_with_data_root_when_no_cookie_configured(tmp_path):
+    data_root = _write_authenticated_hosts_config(tmp_path, {"medium.com": "sid=abc; uid=def"})
+    with patch("app.ingestion.fetcher.httpx.Client") as mock_ctor:
+        with pytest.raises(LoginRequiredError):
+            fetch_url("https://x.com/someone/status/123", data_root=data_root)
+    mock_ctor.assert_not_called()
+
+
+@patch("app.ingestion.fetcher.socket.getaddrinfo", return_value=PUBLIC_ADDR_INFO)
+def test_fetch_url_does_not_raise_login_required_for_x_dot_com_when_cookie_configured(mock_getaddrinfo, tmp_path):
+    data_root = _write_authenticated_hosts_config(tmp_path, {"x.com": "auth_token=xyz"})
+    response = _response(status_code=200, text="<html>tweet</html>", url="https://x.com/someone/status/123")
+    mock_client = _mock_client([response])
+    with patch("app.ingestion.fetcher.httpx.Client", return_value=mock_client):
+        result = fetch_url("https://x.com/someone/status/123", data_root=data_root)
+
+    assert result == "<html>tweet</html>"
+    _, kwargs = mock_client.get.call_args
+    assert kwargs["headers"]["Cookie"] == "auth_token=xyz"

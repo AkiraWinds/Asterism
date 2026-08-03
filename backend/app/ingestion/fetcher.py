@@ -1,7 +1,10 @@
 import ipaddress
 import socket
+from pathlib import Path
 
 import httpx
+
+from app.repositories.config_repository import load_authenticated_hosts
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -39,8 +42,8 @@ class TooManyRedirectsError(FetchError):
     pass
 
 
-def _check_login_required(hostname: str) -> None:
-    if hostname in LOGIN_REQUIRED_HOSTS:
+def _check_login_required(hostname: str, authenticated_hosts: dict[str, str]) -> None:
+    if hostname in LOGIN_REQUIRED_HOSTS and hostname not in authenticated_hosts:
         raise LoginRequiredError(
             f"{hostname} requires login to view content. Please capture it with the "
             "Chrome Extension while logged in."
@@ -68,19 +71,21 @@ def _check_ip_safe(hostname: str) -> None:
             )
 
 
-def _check_url_safe(url: httpx.URL) -> None:
+def _check_url_safe(url: httpx.URL, authenticated_hosts: dict[str, str]) -> None:
     if url.scheme not in ALLOWED_SCHEMES:
         raise SsrfBlockedError(f"URL scheme '{url.scheme}' is not allowed.")
     hostname = (url.host or "").lower()
-    _check_login_required(hostname)
+    _check_login_required(hostname, authenticated_hosts)
     _check_ip_safe(hostname)
 
 
-def fetch_url(url: str) -> str:
-    next_url = httpx.URL(url)
-    _check_url_safe(next_url)
+def fetch_url(url: str, data_root: Path | None = None) -> str:
+    authenticated_hosts = load_authenticated_hosts(data_root) if data_root is not None else {}
 
-    headers = {
+    next_url = httpx.URL(url)
+    _check_url_safe(next_url, authenticated_hosts)
+
+    base_headers = {
         "User-Agent": USER_AGENT,
         "Accept": (
             "text/html,application/xhtml+xml,application/xml;q=0.9,"
@@ -92,13 +97,18 @@ def fetch_url(url: str) -> str:
     try:
         with httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=False) as client:
             for _ in range(MAX_REDIRECTS + 1):
+                hostname = (next_url.host or "").lower()
+                headers = dict(base_headers)
+                if cookie := authenticated_hosts.get(hostname):
+                    headers["Cookie"] = cookie
+
                 response = client.get(next_url, headers=headers)
 
                 if not response.has_redirect_location:
                     break
 
                 next_url = response.url.join(response.headers["location"])
-                _check_url_safe(next_url)
+                _check_url_safe(next_url, authenticated_hosts)
             else:
                 raise TooManyRedirectsError(f"Exceeded {MAX_REDIRECTS} redirects fetching {url}")
     except httpx.TimeoutException as exc:
