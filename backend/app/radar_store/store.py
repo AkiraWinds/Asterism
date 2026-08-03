@@ -244,6 +244,19 @@ def claim_radar_item(db_path: Path, item_id: str) -> bool:
         return cursor.rowcount == 1
 
 
+def release_radar_item(db_path: Path, item_id: str) -> None:
+    """Roll a claimed-but-failed item back to 'new', but only if it's still
+    'adding'. Used to clean up after a failed POST /radar/items/{id}/add.
+    Conditioning on status = 'adding' (rather than an unconditional SET, like
+    update_radar_item_status) means a concurrent dismiss that landed while
+    the add was in flight is not clobbered: if the item is already
+    'dismissed' by the time this runs, this is a no-op. No need to check
+    rowcount — this is fire-and-forget cleanup, not a claim."""
+    with _connect(db_path) as conn:
+        conn.execute("UPDATE radar_items SET status = 'new' WHERE id = ? AND status = 'adding'", (item_id,))
+        conn.commit()
+
+
 def list_all_radar_item_urls(db_path: Path) -> set[str]:
     """Get all URLs in the radar_items table (used for dedup checking)."""
     with _connect(db_path) as conn:

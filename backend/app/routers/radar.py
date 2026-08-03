@@ -29,6 +29,7 @@ from app.radar_store.store import (
     list_feed_sources,
     list_new_radar_items,
     radar_db_path,
+    release_radar_item,
     update_feed_source,
     update_radar_item_status,
 )
@@ -169,15 +170,19 @@ def post_add_item_endpoint(item_id: str):
     except (FetchError, ConfigError, ProviderError, OSError) as exc:
         # Claim succeeded but the add itself failed — roll back to 'new' so
         # the item is still visible in GET /radar and safely retryable,
-        # instead of being stuck in 'adding' forever.
-        update_radar_item_status(db_path, item_id, status="new")
+        # instead of being stuck in 'adding' forever. Use release_radar_item
+        # (conditional on status still being 'adding') rather than an
+        # unconditional update, so a concurrent dismiss that landed while
+        # this add was in flight isn't resurrected back to 'new'.
+        release_radar_item(db_path, item_id)
         raise HTTPException(status_code=502, detail=f"Failed to add item: {exc}")
     except Exception:
         # Any other failure (unexpected parsing/provider error not covered by the
         # 502 mapping above) must still roll the claim back to 'new' — otherwise
         # the item is permanently stuck in 'adding': un-retryable and invisible
-        # to GET /radar, which only lists status='new'.
-        update_radar_item_status(db_path, item_id, status="new")
+        # to GET /radar, which only lists status='new'. Same conditional
+        # rollback as above.
+        release_radar_item(db_path, item_id)
         raise
 
     update_radar_item_status(db_path, item_id, status="added", added_source_id=record.id)

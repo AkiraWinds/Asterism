@@ -104,3 +104,22 @@ def test_claim_radar_item_fails_on_missing_item(tmp_path: Path):
     from app.radar_store.store import claim_radar_item
 
     assert claim_radar_item(db_path, "nonexistent") is False
+
+
+def test_release_radar_item_resets_adding_to_new(tmp_path: Path):
+    db_path = radar_db_path(tmp_path)
+    init_db(db_path)
+    insert_radar_item(
+        db_path, item_id="i1", source_id="seed_0", url="https://example.com/a", title="A", summary="s",
+        published_at=None, relevance_score=0.8, quality_score=0.6, reasoning="r",
+        created_at="2026-08-02T00:00:00+00:00",
+    )
+
+    from app.radar_store.store import claim_radar_item, release_radar_item
+
+    assert claim_radar_item(db_path, "i1") is True
+    assert get_radar_item(db_path, "i1")["status"] == "adding"
+
+    release_radar_item(db_path, "i1")
+
+    assert get_radar_item(db_path, "i1")["status"] == "new"
