@@ -86,7 +86,7 @@ def create_source_endpoint(payload: SourceCreateRequest):
 
     if payload.url:
         try:
-            html = fetch_url(payload.url)
+            html = fetch_url(payload.url, data_root=data_root)
         except LoginRequiredError as exc:
             logger.warning("Ingestion login_required url=%s", payload.url)
             return _error_response(400, "login_required", str(exc))

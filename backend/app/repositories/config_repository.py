@@ -92,3 +92,26 @@ def load_brave_api_key(data_root: Path) -> str | None:
     except json.JSONDecodeError:
         return None
     return data.get("brave_api_key") or None
+
+
+def load_authenticated_hosts(data_root: Path) -> dict[str, str]:
+    """Optional per-host Cookie-header map for fetching content behind a login wall
+    using the user's own session (e.g. a paid Medium membership). Disk-only — never
+    exposed via API/UI, since a session cookie logs in as the user. Missing file or
+    missing field both mean "no authenticated hosts configured", not an error.
+    """
+    config_path = data_root / "config.json"
+    if not config_path.exists():
+        return {}
+    try:
+        data = json.loads(config_path.read_text())
+    except json.JSONDecodeError:
+        return {}
+    hosts = data.get("authenticated_hosts")
+    if not isinstance(hosts, dict):
+        return {}
+    return {
+        hostname.lower(): cookie
+        for hostname, cookie in hosts.items()
+        if isinstance(hostname, str) and isinstance(cookie, str)
+    }

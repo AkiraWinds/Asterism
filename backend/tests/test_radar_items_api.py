@@ -66,7 +66,7 @@ def test_add_item_creates_library_source(tmp_path: Path, monkeypatch):
         published_at=None, relevance_score=0.8, quality_score=0.5, reasoning="r",
         created_at=datetime.now(timezone.utc).isoformat(),
     )
-    monkeypatch.setattr("app.routers.radar.fetch_url", lambda url: "<html><title>A</title>full body</html>")
+    monkeypatch.setattr("app.routers.radar.fetch_url", lambda url, **kwargs: "<html><title>A</title>full body</html>")
     monkeypatch.setattr("app.routers.radar.extract_content", lambda html, url, data_root: "full body")
 
     response = client.post("/radar/items/i1/add")
@@ -85,7 +85,7 @@ def test_dismiss_already_added_item_returns_409(tmp_path: Path, monkeypatch):
         published_at=None, relevance_score=0.8, quality_score=0.5, reasoning="r",
         created_at=datetime.now(timezone.utc).isoformat(),
     )
-    monkeypatch.setattr("app.routers.radar.fetch_url", lambda url: "<html><title>A</title>full body</html>")
+    monkeypatch.setattr("app.routers.radar.fetch_url", lambda url, **kwargs: "<html><title>A</title>full body</html>")
     monkeypatch.setattr("app.routers.radar.extract_content", lambda html, url, data_root: "full body")
 
     add_response = client.post("/radar/items/i1/add")
@@ -138,7 +138,7 @@ def test_add_item_returns_502_on_fetch_error(tmp_path: Path, monkeypatch):
 
     from app.ingestion.fetcher import FetchError
 
-    def _raise_fetch_error(url):
+    def _raise_fetch_error(url, **kwargs):
         raise FetchError("boom")
 
     monkeypatch.setattr("app.routers.radar.fetch_url", _raise_fetch_error)
@@ -187,7 +187,7 @@ def test_add_item_rolls_back_to_new_on_fetch_failure(tmp_path: Path, monkeypatch
 
     from app.ingestion.fetcher import FetchError
 
-    def _raise_fetch_error(url):
+    def _raise_fetch_error(url, **kwargs):
         raise FetchError("boom")
 
     monkeypatch.setattr("app.routers.radar.fetch_url", _raise_fetch_error)
@@ -213,7 +213,7 @@ def test_add_item_rolls_back_to_new_on_unmapped_exception(tmp_path: Path, monkey
         created_at=datetime.now(timezone.utc).isoformat(),
     )
 
-    def _raise_unmapped_error(url):
+    def _raise_unmapped_error(url, **kwargs):
         raise ValueError("unexpected parsing failure")
 
     monkeypatch.setattr("app.routers.radar.fetch_url", _raise_unmapped_error)

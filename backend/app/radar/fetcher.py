@@ -7,6 +7,7 @@ docs/superpowers/specs/2026-08-02-radar-content-discovery-design.md.
 
 import io
 from datetime import datetime, timezone
+from pathlib import Path
 
 import feedparser
 
@@ -17,14 +18,14 @@ class FeedFetchError(Exception):
     pass
 
 
-def fetch_feed_items(url: str) -> list[dict]:
+def fetch_feed_items(url: str, data_root: Path | None = None) -> list[dict]:
     """Returns a list of {"url", "title", "summary", "published_at"} dicts,
     one per feed entry. Raises FeedFetchError on any fetch failure or on a
     feed that feedparser cannot parse at all (its bozo flag with no usable
     entries) — callers treat this as a per-source failure that must not
     abort the whole refresh run."""
     try:
-        raw = fetch_url(url)
+        raw = fetch_url(url, data_root=data_root)
     except FetchError as exc:
         raise FeedFetchError(f"Failed to fetch feed {url}: {exc}") from exc
 

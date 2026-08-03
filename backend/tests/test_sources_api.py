@@ -64,7 +64,7 @@ def test_create_source_from_url_success(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
     monkeypatch.setattr(
         "app.routers.sources.fetch_url",
-        lambda url: "<html><head><title>Fetched Title</title></head><body>hi</body></html>",
+        lambda url, **kwargs: "<html><head><title>Fetched Title</title></head><body>hi</body></html>",
     )
     monkeypatch.setattr("app.routers.sources.extract_content", lambda html, url, data_root: "Extracted body")
 
@@ -89,7 +89,7 @@ def test_create_source_from_url_extraction_provider_timeout_returns_504(tmp_path
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
     monkeypatch.setattr(
         "app.routers.sources.fetch_url",
-        lambda url: "<html><head><title>T</title></head><body>hi</body></html>",
+        lambda url, **kwargs: "<html><head><title>T</title></head><body>hi</body></html>",
     )
 
     def _raise_timeout(html, url, data_root):
@@ -115,7 +115,7 @@ def test_create_source_from_url_extraction_config_error_returns_400(tmp_path: Pa
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
     monkeypatch.setattr(
         "app.routers.sources.fetch_url",
-        lambda url: "<html><head><title>T</title></head><body>hi</body></html>",
+        lambda url, **kwargs: "<html><head><title>T</title></head><body>hi</body></html>",
     )
 
     def _raise_config_error(html, url, data_root):

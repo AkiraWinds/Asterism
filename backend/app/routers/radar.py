@@ -163,7 +163,7 @@ def post_add_item_endpoint(item_id: str):
 
     data_root = get_data_root()
     try:
-        html = fetch_url(item["url"])
+        html = fetch_url(item["url"], data_root=data_root)
         title = extract_title(html, item["url"]) or item["title"]
         content = extract_content(html, item["url"], data_root)
         record = create_source_from_url(data_root, item["url"], title, html, content)

@@ -89,7 +89,7 @@ def refresh_radar(data_root: Path, provider: Provider, embeddings_api_key: str) 
             continue
 
         try:
-            raw_items = fetch_feed_items(source["url"])
+            raw_items = fetch_feed_items(source["url"], data_root=data_root)
             new_items = filter_new_items(raw_items, seen_urls)
         except Exception as exc:  # noqa: BLE001 - any per-source fetch/dedup failure (bad feed XML, malformed entry, network error, ...) must not abort the run
             logger.warning("Radar fetch failed source=%s error=%s", source["name"], exc)
@@ -123,7 +123,7 @@ def refresh_radar(data_root: Path, provider: Provider, embeddings_api_key: str) 
     for item in shortlist:
         source_name = item["_source_name"]
         try:
-            html = fetch_url(item["url"])
+            html = fetch_url(item["url"], data_root=data_root)
             article_text = extract_content(html, item["url"], data_root)
             judgment = judge_item(provider, article_text, source_name, boost_terms)
         except (ProviderMissingError, ProviderConfigError) as exc:

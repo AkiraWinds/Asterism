@@ -9,6 +9,7 @@ from app.repositories.config_repository import (
     load_config,
     load_embeddings_api_key,
     load_brave_api_key,
+    load_authenticated_hosts,
 )
 
 
@@ -99,3 +100,51 @@ def test_load_brave_api_key_returns_key_when_set(tmp_path: Path):
         json.dumps({"strategy": "api-key", "provider": "anthropic", "api_key": "fake", "brave_api_key": "brave-key"})
     )
     assert load_brave_api_key(tmp_path) == "brave-key"
+
+
+def test_load_authenticated_hosts_returns_empty_dict_when_config_missing(tmp_path: Path):
+    assert load_authenticated_hosts(tmp_path) == {}
+
+
+def test_load_authenticated_hosts_returns_empty_dict_when_field_unset(tmp_path: Path):
+    _write_config(tmp_path, {"strategy": "api-key", "provider": "anthropic", "api_key": "fake"})
+    assert load_authenticated_hosts(tmp_path) == {}
+
+
+def test_load_authenticated_hosts_returns_configured_map(tmp_path: Path):
+    _write_config(
+        tmp_path,
+        {
+            "strategy": "api-key",
+            "provider": "anthropic",
+            "api_key": "fake",
+            "authenticated_hosts": {"medium.com": "sid=abc; uid=def"},
+        },
+    )
+    assert load_authenticated_hosts(tmp_path) == {"medium.com": "sid=abc; uid=def"}
+
+
+def test_load_authenticated_hosts_lowercases_hostname_keys(tmp_path: Path):
+    _write_config(
+        tmp_path,
+        {
+            "strategy": "api-key",
+            "provider": "anthropic",
+            "api_key": "fake",
+            "authenticated_hosts": {"Medium.COM": "sid=abc; uid=def"},
+        },
+    )
+    assert load_authenticated_hosts(tmp_path) == {"medium.com": "sid=abc; uid=def"}
+
+
+def test_load_authenticated_hosts_returns_empty_dict_when_not_a_dict(tmp_path: Path):
+    _write_config(
+        tmp_path,
+        {
+            "strategy": "api-key",
+            "provider": "anthropic",
+            "api_key": "fake",
+            "authenticated_hosts": "not-a-dict",
+        },
+    )
+    assert load_authenticated_hosts(tmp_path) == {}
