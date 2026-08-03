@@ -200,3 +200,31 @@ def test_add_item_rolls_back_to_new_on_fetch_failure(tmp_path: Path, monkeypatch
 
     # Must roll back to 'new', not get stuck in 'adding' forever.
     assert get_radar_item(db_path, "i1")["status"] == "new"
+
+
+def test_add_item_rolls_back_to_new_on_unmapped_exception(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    _write_config(tmp_path)
+    db_path = radar_db_path(tmp_path)
+    init_db(db_path)
+    insert_radar_item(
+        db_path, item_id="i1", source_id="seed_0", url="https://example.com/a", title="A", summary="s",
+        published_at=None, relevance_score=0.8, quality_score=0.5, reasoning="r",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    def _raise_unmapped_error(url):
+        raise ValueError("unexpected parsing failure")
+
+    monkeypatch.setattr("app.routers.radar.fetch_url", _raise_unmapped_error)
+
+    try:
+        client.post("/radar/items/i1/add")
+    except ValueError:
+        pass  # TestClient re-raises unhandled exceptions by default; that's fine here.
+
+    from app.radar_store.store import get_radar_item
+
+    # Even an exception type outside the mapped (FetchError, ConfigError,
+    # ProviderError, OSError) tuple must not leave the item stuck in 'adding'.
+    assert get_radar_item(db_path, "i1")["status"] == "new"

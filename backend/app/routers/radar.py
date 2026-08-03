@@ -172,6 +172,13 @@ def post_add_item_endpoint(item_id: str):
         # instead of being stuck in 'adding' forever.
         update_radar_item_status(db_path, item_id, status="new")
         raise HTTPException(status_code=502, detail=f"Failed to add item: {exc}")
+    except Exception:
+        # Any other failure (unexpected parsing/provider error not covered by the
+        # 502 mapping above) must still roll the claim back to 'new' — otherwise
+        # the item is permanently stuck in 'adding': un-retryable and invisible
+        # to GET /radar, which only lists status='new'.
+        update_radar_item_status(db_path, item_id, status="new")
+        raise
 
     update_radar_item_status(db_path, item_id, status="added", added_source_id=record.id)
     return {"id": record.id, "title": record.title}
