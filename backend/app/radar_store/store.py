@@ -182,6 +182,7 @@ def delete_boost_topic(db_path: Path, topic_id: str) -> None:
 def insert_radar_item(
     db_path: Path, *, item_id: str, source_id: str, url: str, title: str, summary: str,
     published_at: str | None, relevance_score: float, quality_score: float, reasoning: str, created_at: str,
+    status: str = "new",
 ) -> bool:
     """Insert a radar item. Returns False (no-op) if url already exists — UNIQUE constraint is the dedup-across-runs mechanism."""
     try:
@@ -189,8 +190,8 @@ def insert_radar_item(
             conn.execute(
                 "INSERT INTO radar_items "
                 "(id, source_id, url, title, summary, published_at, relevance_score, quality_score, reasoning, status, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)",
-                (item_id, source_id, url, title, summary, published_at, relevance_score, quality_score, reasoning, created_at),
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (item_id, source_id, url, title, summary, published_at, relevance_score, quality_score, reasoning, status, created_at),
             )
             conn.commit()
         return True

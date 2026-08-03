@@ -137,6 +137,24 @@ def refresh_radar(data_root: Path, provider: Provider, embeddings_api_key: str) 
             continue
 
         if judgment["relevance_score"] < RADAR_RELEVANCE_FLOOR:
+            # Persist as 'rejected' rather than dropping it — list_new_radar_items
+            # only returns status='new', so GET /radar is unaffected, but this
+            # keeps the item in list_all_radar_item_urls's dedup set so it's never
+            # re-fetched/re-embedded/re-judged by the LLM on a future refresh.
+            insert_radar_item(
+                db_path,
+                item_id=uuid.uuid4().hex[:12],
+                source_id=item["_source_id"],
+                url=item["url"],
+                title=item["title"],
+                summary=item.get("summary", ""),
+                published_at=item.get("published_at"),
+                relevance_score=judgment["relevance_score"],
+                quality_score=judgment["quality_score"],
+                reasoning=judgment["reasoning"],
+                created_at=_now_iso(),
+                status="rejected",
+            )
             continue
 
         inserted = insert_radar_item(
