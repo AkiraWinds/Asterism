@@ -7,6 +7,7 @@
     "default_popup": "popup.html"
   },
   "permissions": ["activeTab", "scripting", "storage"],
+  "options_page": "options.html",
   "host_permissions": ["http://localhost:8000/*"],
   "optional_host_permissions": ["<all_urls>"]
 }
