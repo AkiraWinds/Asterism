@@ -9,6 +9,7 @@ class SourceCreateRequest(BaseModel):
     title: str | None = None
     content: str | None = None
     url: str | None = None
+    html: str | None = None
 
 
 class SourceSummaryResponse(BaseModel):

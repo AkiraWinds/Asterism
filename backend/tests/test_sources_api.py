@@ -127,3 +127,27 @@ def test_create_source_from_url_extraction_config_error_returns_400(tmp_path: Pa
 
     assert response.status_code == 400
     assert response.json()["error_type"] == "config"
+
+
+def test_create_source_with_prefetched_html_skips_fetch_url(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+
+    def _unexpected_fetch(url):
+        raise AssertionError("fetch_url should not be called when html is supplied")
+
+    monkeypatch.setattr("app.routers.sources.fetch_url", _unexpected_fetch)
+    monkeypatch.setattr("app.routers.sources.extract_content", lambda html, url, data_root: "Extracted body")
+
+    response = client.post(
+        "/sources",
+        json={
+            "url": "https://example.com/member-article",
+            "title": "Ignored — extension-supplied title is not used for meta.original_title",
+            "html": "<html><head><title>Captured Title</title></head><body>member content</body></html>",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "Captured Title"
+    assert body["content"].strip() == "Extracted body"
