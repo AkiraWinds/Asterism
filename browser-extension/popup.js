@@ -30,6 +30,13 @@ document.getElementById("save").addEventListener("click", async () => {
     const { html, title, url } = await capturePage(tab.id);
     const backendUrl = await getBackendUrl();
 
+    const origin = new URL(backendUrl).origin;
+    const hasPermission = await chrome.permissions.contains({ origins: [`${origin}/*`] });
+    if (!hasPermission) {
+      setStatus("Backend access not granted — open the extension's Options page and re-grant access to this URL.", "error");
+      return;
+    }
+
     const response = await fetch(`${backendUrl}/sources`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

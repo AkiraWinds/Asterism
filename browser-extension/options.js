@@ -25,13 +25,14 @@ document.getElementById("save").addEventListener("click", async () => {
   }
 
   const originPattern = `${origin}/*`;
-  const hasPermission = await chrome.permissions.contains({ origins: [originPattern] });
-  if (!hasPermission) {
-    const granted = await chrome.permissions.request({ origins: [originPattern] });
-    if (!granted) {
-      setStatus("Permission denied — the extension can't reach that URL without it.");
-      return;
-    }
+  // Called unconditionally (no preceding chrome.permissions.contains check):
+  // request() resolves true immediately with no prompt if already granted, and
+  // an await before request() risks losing the click's transient activation,
+  // which Chrome requires for the permission prompt to appear.
+  const granted = await chrome.permissions.request({ origins: [originPattern] });
+  if (!granted) {
+    setStatus("Permission denied — the extension can't reach that URL without it.");
+    return;
   }
 
   await chrome.storage.sync.set({ backendUrl: raw });

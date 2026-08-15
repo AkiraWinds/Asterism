@@ -141,6 +141,8 @@ Captures the current tab's rendered page into your library — useful for conten
 3. Click "Load unpacked" and select the `browser-extension/` directory.
 4. Click the extension icon on any page and hit "Save this page". If your backend runs somewhere other than `http://localhost:8000`, set it in the extension's Options page first.
 
+Captured pages go through the same content-extraction pipeline as any other source, which means the page's raw HTML can be sent to your configured AI provider (Claude/OpenAI/etc.) if trafilatura's local extraction comes up short — worth knowing since this extension is most useful on exactly the pages (JS-heavy, logged-in) where that fallback is most likely to trigger.
+
 ## Architecture
 
 - **`backend/`** — Python/FastAPI owns everything: local-first file storage, AI provider abstraction (CLI-subprocess or API key), content ingestion/analysis, the knowledge graph, and chat. Analysis pipelines are built as LangGraph graphs so individual fields checkpoint and retry independently.
