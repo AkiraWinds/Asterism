@@ -95,6 +95,8 @@ Captures the current tab's rendered page into your library — useful for conten
 
 Run backend and frontend as always-on background services instead of starting them by hand each session. Both restart automatically if they crash and start again at login. This is still entirely local — both services are configured to bind `127.0.0.1` only (the backend via `--host`, the frontend via the `-H` flag below, since `next start` otherwise defaults to `0.0.0.0`), so this setup stays exactly as locked-down as running them by hand.
 
+If you've been running the backend/frontend by hand (`uv run uvicorn ... --reload` / `npm run dev`), stop those processes first — they hold ports 8000/3000, and loading these services while those ports are occupied means launchd fails to bind and crash-loops instead.
+
 ```bash
 # One-time: build the frontend for production (next start serves this build,
 # it doesn't build on the fly — rerun this after any frontend code change).
