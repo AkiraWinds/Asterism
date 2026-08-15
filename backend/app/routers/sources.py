@@ -85,20 +85,26 @@ def create_source_endpoint(payload: SourceCreateRequest):
     data_root = get_data_root()
 
     if payload.url:
-        try:
-            html = fetch_url(payload.url)
-        except LoginRequiredError as exc:
-            logger.warning("Ingestion login_required url=%s", payload.url)
-            return _error_response(400, "login_required", str(exc))
-        except FetchBlockedError as exc:
-            logger.warning("Ingestion blocked url=%s", payload.url)
-            return _error_response(400, "blocked", str(exc))
-        except FetchTimeoutError as exc:
-            logger.warning("Ingestion fetch timeout url=%s", payload.url)
-            return _error_response(504, "timeout", str(exc))
-        except FetchError as exc:
-            logger.warning("Ingestion fetch error url=%s type=%s", payload.url, type(exc).__name__)
-            return _error_response(502, "error", str(exc))
+        if payload.html:
+            # Pre-fetched by a caller that already has the rendered page in hand (e.g. the
+            # browser extension), so it can bypass server-side fetch entirely — this is how
+            # login-walled/JS-rendered pages get captured without needing cookie replay.
+            html = payload.html
+        else:
+            try:
+                html = fetch_url(payload.url)
+            except LoginRequiredError as exc:
+                logger.warning("Ingestion login_required url=%s", payload.url)
+                return _error_response(400, "login_required", str(exc))
+            except FetchBlockedError as exc:
+                logger.warning("Ingestion blocked url=%s", payload.url)
+                return _error_response(400, "blocked", str(exc))
+            except FetchTimeoutError as exc:
+                logger.warning("Ingestion fetch timeout url=%s", payload.url)
+                return _error_response(504, "timeout", str(exc))
+            except FetchError as exc:
+                logger.warning("Ingestion fetch error url=%s type=%s", payload.url, type(exc).__name__)
+                return _error_response(502, "error", str(exc))
 
         title = extract_title(html, payload.url)
 

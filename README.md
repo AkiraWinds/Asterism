@@ -48,7 +48,7 @@ Asterism is a local-first personal knowledge base with an agent inside — but t
         Wiki (browsable markdown pages)
 ```
 
-Everything in [What ships today](#what-ships-today) is what actually exists right now, built on the current backend/frontend stack. Ahead: copilot retrieval across the whole library, a Dashboard/Feed, and a rewritten browser extension.
+Everything in [What ships today](#what-ships-today) is what actually exists right now, built on the current backend/frontend stack. Ahead: copilot retrieval across the whole library and a Dashboard/Feed.
 
 ## What ships today
 
@@ -86,6 +86,10 @@ launchctl load ~/Library/LaunchAgents/com.asterism.radar-refresh.plist
 ```
 
 Runs once daily (default 08:00, edit `StartCalendarInterval` in the plist to change it). Unlike cron, launchd fires a missed run on next wake if the machine was asleep at the scheduled time. Output/errors land in `~/Library/Logs/asterism-radar-refresh.log`. The same template pattern can be copied for `backend/scripts/wiki_compile.py`.
+
+### Browser extension
+
+Captures the current tab's rendered page into your library — useful for content behind a login wall (e.g. a paid Medium article) that server-side fetching can't reach. Load it as an unpacked extension from the `browser-extension/` directory.
 
 ## Get started
 
@@ -127,6 +131,17 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+**Browser extension (optional)**
+
+Captures the current tab's rendered page into your library — useful for content behind a login wall (e.g. a paid Medium article) that server-side fetching can't reach.
+
+1. Start the backend (`http://localhost:8000` by default).
+2. In Chrome, go to `chrome://extensions`, enable Developer Mode.
+3. Click "Load unpacked" and select the `browser-extension/` directory.
+4. Click the extension icon on any page and hit "Save this page". If your backend runs somewhere other than `http://localhost:8000`, set it in the extension's Options page first.
+
+Captured pages go through the same content-extraction pipeline as any other source, which means the page's raw HTML can be sent to your configured AI provider (Claude/OpenAI/etc.) if trafilatura's local extraction comes up short — worth knowing since this extension is most useful on exactly the pages (JS-heavy, logged-in) where that fallback is most likely to trigger.
 
 ## Architecture
 

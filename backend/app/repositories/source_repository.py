@@ -56,9 +56,9 @@ def create_source_from_url(
         "original_file": "original.html",
     }
     try:
-        (source_dir / "meta.json").write_text(json.dumps(meta, indent=2))
-        (source_dir / "original.html").write_text(html)
-        (source_dir / "content.md").write_text(f'---\ntitle: {json.dumps(title)}\n---\n\n{content}\n')
+        (source_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        (source_dir / "original.html").write_text(html, encoding="utf-8")
+        (source_dir / "content.md").write_text(f'---\ntitle: {json.dumps(title)}\n---\n\n{content}\n', encoding="utf-8")
     except OSError as exc:
         # A partial write (e.g. disk full mid-sequence) must not leave a directory
         # that only has meta.json — per the file-existence status model that reads

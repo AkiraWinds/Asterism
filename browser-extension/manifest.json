@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Asterism Capture",
+  "version": "0.1.0",
+  "description": "Save the current page into your Asterism library, including content only visible while logged in.",
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab", "scripting", "storage"],
+  "options_page": "options.html",
+  "host_permissions": ["http://localhost:8000/*"],
+  "optional_host_permissions": ["<all_urls>"]
+}
