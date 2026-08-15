@@ -93,7 +93,7 @@ Captures the current tab's rendered page into your library — useful for conten
 
 ### Persistent local services (optional)
 
-Run backend and frontend as always-on background services instead of starting them by hand each session. Both restart automatically if they crash and start again at login. This is still entirely local — the backend binds to `127.0.0.1` only, so nothing changes about who can reach it.
+Run backend and frontend as always-on background services instead of starting them by hand each session. Both restart automatically if they crash and start again at login. This is still entirely local — both services are configured to bind `127.0.0.1` only (the backend via `--host`, the frontend via the `-H` flag below, since `next start` otherwise defaults to `0.0.0.0`), so this setup stays exactly as locked-down as running them by hand.
 
 ```bash
 # One-time: build the frontend for production (next start serves this build,
@@ -103,10 +103,24 @@ cd frontend && npm run build && cd ..
 cp backend/scripts/com.asterism.backend.plist.template ~/Library/LaunchAgents/com.asterism.backend.plist
 cp backend/scripts/com.asterism.frontend.plist.template ~/Library/LaunchAgents/com.asterism.frontend.plist
 # Edit both copies: replace __UV_BIN__ (`which uv`), __NPM_BIN__ (`which npm`),
-# __REPO_ROOT__, __ASTERISM_DATA_ROOT__, and __HOME__ with your actual paths.
+# __REPO_ROOT__, __ASTERISM_DATA_ROOT__, __HOME__, and __PATH__ with your actual
+# paths. launchd does not source your shell profile, so each service only gets
+# the minimal default PATH (/usr/bin:/bin:/usr/sbin:/sbin) unless you set one
+# explicitly — figure out a working value with `echo $PATH` in your normal
+# terminal, or at minimum include the directories from `dirname $(which node)`,
+# `dirname $(which npm)`, and, if you're on a CLI provider (`cli_claude`/
+# `cli_codex`), `dirname $(which claude)` (or `codex`) so the backend can find
+# it via shutil.which().
 
 launchctl load ~/Library/LaunchAgents/com.asterism.backend.plist
 launchctl load ~/Library/LaunchAgents/com.asterism.frontend.plist
+
+# Verify both actually started (not just that launchd accepted the plist):
+launchctl list com.asterism.backend
+launchctl list com.asterism.frontend
+# A non-zero/non-dash exit status in either output means it's crash-looping —
+# check the logs below. Then confirm the backend answers:
+curl -sf http://localhost:8000/sources
 ```
 
 Backend is then at `http://localhost:8000`, frontend at `http://localhost:3000`, same as running them manually. Logs land in `~/Library/Logs/asterism-backend.log` and `~/Library/Logs/asterism-frontend.log`.

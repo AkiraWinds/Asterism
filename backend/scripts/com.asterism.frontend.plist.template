@@ -10,15 +10,29 @@
         <string>__NPM_BIN__</string>
         <string>run</string>
         <string>start</string>
+        <string>--</string>
+        <string>-H</string>
+        <string>127.0.0.1</string>
     </array>
 
     <key>WorkingDirectory</key>
     <string>__REPO_ROOT__/frontend</string>
 
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__PATH__</string>
+    </dict>
+
     <!-- `next start` serves the .next/ production build — it does not build
          on the fly. Run `npm run build` in frontend/ at least once before
          loading this service, and again after any frontend code change
-         (this service does not hot-reload). See README.md setup steps. -->
+         (this service does not hot-reload). See README.md setup steps.
+         Like the backend service, this is a long-running daemon that starts
+         at login and restarts automatically on crash, not a one-shot
+         scheduled job; -H 127.0.0.1 above overrides next start's default
+         0.0.0.0 bind so it stays reachable only from this machine, matching
+         the backend's posture. -->
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
