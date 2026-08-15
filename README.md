@@ -91,6 +91,30 @@ Runs once daily (default 08:00, edit `StartCalendarInterval` in the plist to cha
 
 Captures the current tab's rendered page into your library — useful for content behind a login wall (e.g. a paid Medium article) that server-side fetching can't reach. Load it as an unpacked extension from the `browser-extension/` directory.
 
+### Persistent local services (optional)
+
+Run backend and frontend as always-on background services instead of starting them by hand each session. Both restart automatically if they crash and start again at login. This is still entirely local — the backend binds to `127.0.0.1` only, so nothing changes about who can reach it.
+
+```bash
+# One-time: build the frontend for production (next start serves this build,
+# it doesn't build on the fly — rerun this after any frontend code change).
+cd frontend && npm run build && cd ..
+
+cp backend/scripts/com.asterism.backend.plist.template ~/Library/LaunchAgents/com.asterism.backend.plist
+cp backend/scripts/com.asterism.frontend.plist.template ~/Library/LaunchAgents/com.asterism.frontend.plist
+# Edit both copies: replace __UV_BIN__ (`which uv`), __NPM_BIN__ (`which npm`),
+# __REPO_ROOT__, __ASTERISM_DATA_ROOT__, and __HOME__ with your actual paths.
+
+launchctl load ~/Library/LaunchAgents/com.asterism.backend.plist
+launchctl load ~/Library/LaunchAgents/com.asterism.frontend.plist
+```
+
+Backend is then at `http://localhost:8000`, frontend at `http://localhost:3000`, same as running them manually. Logs land in `~/Library/Logs/asterism-backend.log` and `~/Library/Logs/asterism-frontend.log`.
+
+To stop: `launchctl unload ~/Library/LaunchAgents/com.asterism.backend.plist` (same for frontend). To pick up a code change: `launchctl unload` then `launchctl load` again (frontend also needs `npm run build` rerun first).
+
+If your `config.json` uses a CLI provider (`cli_claude`/`cli_codex`), sign in to that CLI at least once in a regular terminal first — its session is stored on disk, and the backend service running under launchd reads the same session, but can't create one interactively.
+
 ## Get started
 
 You need **Python 3.11+** with [uv](https://docs.astral.sh/uv/), **Node 20+**, and one agent CLI you already use, signed in: [Claude Code](https://docs.claude.com/en/docs/claude-code/setup) (`claude`) or [OpenAI Codex](https://github.com/openai/codex) (`codex`) — or an Anthropic/OpenAI API key instead.
