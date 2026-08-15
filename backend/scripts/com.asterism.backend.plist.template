@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.asterism.backend</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__UV_BIN__</string>
+        <string>run</string>
+        <string>uvicorn</string>
+        <string>app.main:app</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8000</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__REPO_ROOT__/backend</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>ASTERISM_DATA_ROOT</key>
+        <string>__ASTERISM_DATA_ROOT__</string>
+        <key>PATH</key>
+        <string>__PATH__</string>
+    </dict>
+
+    <!-- Long-running service, not a scheduled job: starts at login and restarts
+         automatically on crash, unlike radar-refresh's once-daily
+         StartCalendarInterval job that runs once and exits. No --reload
+         (a file-watcher costs memory and isn't useful for an unattended
+         service); binds 127.0.0.1 only, never 0.0.0.0, so this stays
+         reachable only from this machine. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/asterism-backend.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/asterism-backend.log</string>
+</dict>
+</plist>
