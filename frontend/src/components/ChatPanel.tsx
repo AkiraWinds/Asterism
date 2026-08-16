@@ -210,7 +210,7 @@ export function ChatPanel({
           type="button"
           onClick={handleSend}
           disabled={sending || !input.trim()}
-          className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-on hover:bg-accent-secondary disabled:opacity-50"
+          className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-on hover:bg-accent-hover disabled:opacity-50"
         >
           {sending ? "…" : "Send"}
         </button>

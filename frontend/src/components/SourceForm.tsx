@@ -88,7 +88,7 @@ export function SourceForm() {
       <button
         type="submit"
         disabled={submitting}
-        className="self-end rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-on hover:bg-accent-secondary disabled:opacity-50"
+        className="self-end rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-on hover:bg-accent-hover disabled:opacity-50"
       >
         {submitting ? "Saving…" : "Save"}
       </button>

@@ -2,44 +2,47 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  --color-background: #FAF9FC;
-  --color-foreground: #1E1B2E;
-  --color-card: #FFFFFF;
-  --color-border: #EDE9F5;
-  --color-muted: #F1EEF8;
-  --color-muted-foreground: #71717A;
-  --color-accent: #8B5CF6;
-  --color-accent-secondary: #C4B5FD;
-  --color-accent-on: #FFFFFF;
-  --color-destructive: #DC2626;
+  --app-background: #FAF9FC;
+  --app-foreground: #1E1B2E;
+  --app-card: #FFFFFF;
+  --app-border: #EDE9F5;
+  --app-muted: #F1EEF8;
+  --app-muted-foreground: #71717A;
+  --app-accent: #8B5CF6;
+  --app-accent-secondary: #C4B5FD;
+  --app-accent-hover: #7C3AED;
+  --app-accent-on: #FFFFFF;
+  --app-destructive: #DC2626;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-background: #14121F;
-    --color-foreground: #EDE9F5;
-    --color-card: #1C1830;
-    --color-border: #2E2748;
-    --color-muted: #241F3D;
-    --color-muted-foreground: #A8A2B8;
-    --color-accent: #A78BFA;
-    --color-accent-secondary: #8B5CF6;
-    --color-accent-on: #14121F;
-    --color-destructive: #F87171;
+    --app-background: #14121F;
+    --app-foreground: #EDE9F5;
+    --app-card: #1C1830;
+    --app-border: #2E2748;
+    --app-muted: #241F3D;
+    --app-muted-foreground: #A8A2B8;
+    --app-accent: #A78BFA;
+    --app-accent-secondary: #8B5CF6;
+    --app-accent-hover: #8B5CF6;
+    --app-accent-on: #14121F;
+    --app-destructive: #F87171;
   }
 }
 
 @theme inline {
-  --color-background: var(--color-background);
-  --color-foreground: var(--color-foreground);
-  --color-card: var(--color-card);
-  --color-border: var(--color-border);
-  --color-muted: var(--color-muted);
-  --color-muted-foreground: var(--color-muted-foreground);
-  --color-accent: var(--color-accent);
-  --color-accent-secondary: var(--color-accent-secondary);
-  --color-accent-on: var(--color-accent-on);
-  --color-destructive: var(--color-destructive);
+  --color-background: var(--app-background);
+  --color-foreground: var(--app-foreground);
+  --color-card: var(--app-card);
+  --color-border: var(--app-border);
+  --color-muted: var(--app-muted);
+  --color-muted-foreground: var(--app-muted-foreground);
+  --color-accent: var(--app-accent);
+  --color-accent-secondary: var(--app-accent-secondary);
+  --color-accent-hover: var(--app-accent-hover);
+  --color-accent-on: var(--app-accent-on);
+  --color-destructive: var(--app-destructive);
   --font-sans: var(--font-inter);
   --font-heading: var(--font-familjen);
   --font-mono: var(--font-geist-mono);

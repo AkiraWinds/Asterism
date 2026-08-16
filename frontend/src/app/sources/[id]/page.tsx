@@ -101,7 +101,7 @@ export default function SourcePage() {
                 type="button"
                 onClick={handleAnalyze}
                 disabled={analyzing}
-                className="mt-6 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-on hover:bg-accent-secondary disabled:opacity-50"
+                className="mt-6 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-on hover:bg-accent-hover disabled:opacity-50"
               >
                 {analyzing ? "Analyzing…" : "Analyze"}
               </button>
