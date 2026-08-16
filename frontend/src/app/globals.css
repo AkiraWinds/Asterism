@@ -2,26 +2,50 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: #FAF9FC;
+  --color-foreground: #1E1B2E;
+  --color-card: #FFFFFF;
+  --color-border: #EDE9F5;
+  --color-muted: #F1EEF8;
+  --color-muted-foreground: #71717A;
+  --color-accent: #8B5CF6;
+  --color-accent-secondary: #C4B5FD;
+  --color-accent-on: #FFFFFF;
+  --color-destructive: #DC2626;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --color-background: #14121F;
+    --color-foreground: #EDE9F5;
+    --color-card: #1C1830;
+    --color-border: #2E2748;
+    --color-muted: #241F3D;
+    --color-muted-foreground: #A8A2B8;
+    --color-accent: #A78BFA;
+    --color-accent-secondary: #8B5CF6;
+    --color-accent-on: #14121F;
+    --color-destructive: #F87171;
   }
 }
 
+@theme inline {
+  --color-background: var(--color-background);
+  --color-foreground: var(--color-foreground);
+  --color-card: var(--color-card);
+  --color-border: var(--color-border);
+  --color-muted: var(--color-muted);
+  --color-muted-foreground: var(--color-muted-foreground);
+  --color-accent: var(--color-accent);
+  --color-accent-secondary: var(--color-accent-secondary);
+  --color-accent-on: var(--color-accent-on);
+  --color-destructive: var(--color-destructive);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--color-background);
+  color: var(--color-foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
