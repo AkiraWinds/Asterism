@@ -10,6 +10,7 @@ import {
   listConversations,
   streamChatMessage,
 } from "@/lib/api";
+import { Plus, X } from "@phosphor-icons/react";
 
 export function ChatPanel({
   sourceId,
@@ -118,15 +119,15 @@ export function ChatPanel({
   }
 
   return (
-    <div className="flex h-full flex-col rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="flex items-center gap-1 overflow-x-auto border-b border-neutral-200 px-2 py-2 dark:border-neutral-800">
+    <div className="flex h-full flex-col rounded-lg border border-border bg-card">
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-border px-2 py-2">
         {conversations.map((c) => (
           <div
             key={c.id}
             className={`group flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ${
               c.id === activeId
-                ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
-                : "text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                ? "bg-accent text-accent-on"
+                : "text-muted-foreground hover:bg-muted"
             }`}
           >
             <button type="button" onClick={() => setActiveId(c.id)}>
@@ -138,7 +139,7 @@ export function ChatPanel({
               aria-label={`Delete ${c.title}`}
               className="opacity-0 group-hover:opacity-100"
             >
-              ×
+              <X size={12} weight="thin" />
             </button>
           </div>
         ))}
@@ -147,42 +148,36 @@ export function ChatPanel({
           onClick={handleNewChat}
           aria-label="New chat"
           title="New chat"
-          className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
         >
-          +
+          <Plus size={12} weight="thin" />
         </button>
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
-        {loadError && <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>}
+        {loadError && <p className="text-sm text-destructive">{loadError}</p>}
         {turns.map((turn, i) => (
           <div key={i} className={turn.role === "user" ? "text-right" : "text-left"}>
             <p
               className={`inline-block rounded-lg px-3 py-2 text-sm ${
-                turn.role === "user"
-                  ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
-                  : "bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
+                turn.role === "user" ? "bg-accent text-accent-on" : "bg-muted text-foreground"
               }`}
             >
               {turn.content}
             </p>
-            {turn.truncated && (
-              <p className="mt-1 text-xs text-red-600 dark:text-red-400">Response interrupted</p>
-            )}
+            {turn.truncated && <p className="mt-1 text-xs text-destructive">Response interrupted</p>}
           </div>
         ))}
         {sending && streamingText && (
           <div className="text-left">
-            <p className="inline-block rounded-lg bg-neutral-100 px-3 py-2 text-sm text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100">
-              {streamingText}
-            </p>
+            <p className="inline-block rounded-lg bg-muted px-3 py-2 text-sm text-foreground">{streamingText}</p>
           </div>
         )}
         <div ref={bottomRef} />
       </div>
 
       {attachedHighlight && (
-        <div className="mx-3 mb-2 flex items-start justify-between gap-2 rounded-md bg-neutral-100 px-3 py-2 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+        <div className="mx-3 mb-2 flex items-start justify-between gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
           <span>
             Attached: &quot;{attachedHighlight.slice(0, 80)}
             {attachedHighlight.length > 80 ? "…" : ""}&quot;
@@ -192,14 +187,14 @@ export function ChatPanel({
             onClick={onClearAttachedHighlight}
             aria-label="Dismiss attached highlight"
             title="Dismiss attached highlight"
-            className="shrink-0 rounded px-1 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-100"
+            className="shrink-0 rounded px-1 text-muted-foreground hover:text-foreground"
           >
-            ×
+            <X size={12} weight="thin" />
           </button>
         </div>
       )}
 
-      <div className="flex gap-2 border-t border-neutral-200 p-3 dark:border-neutral-800">
+      <div className="flex gap-2 border-t border-border p-3">
         <input
           type="text"
           value={input}
@@ -209,13 +204,13 @@ export function ChatPanel({
           }}
           placeholder="Ask about this source…"
           disabled={sending}
-          className="flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+          className="flex-1 rounded-md border border-border bg-transparent px-3 py-2 text-sm text-foreground"
         />
         <button
           type="button"
           onClick={handleSend}
           disabled={sending || !input.trim()}
-          className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
+          className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-on hover:bg-accent-secondary disabled:opacity-50"
         >
           {sending ? "…" : "Send"}
         </button>
