@@ -7,6 +7,7 @@
 // the two mutations (PUT rating, POST promote). See
 // docs/superpowers/specs/2026-08-01-analysis-feedback-promote-design.md.
 import { useState } from "react";
+import { ThumbsDown, ThumbsUp } from "@phosphor-icons/react";
 import { Feedback, FeedbackKind, putFeedback, promoteFeedback } from "@/lib/api";
 
 export function FeedbackControls({
@@ -79,37 +80,31 @@ export function FeedbackControls({
         disabled={isRating}
         onClick={() => handleRate("up")}
         className={`rounded px-1 ${
-          existingFeedback?.rating === "up"
-            ? "text-green-600 dark:text-green-400"
-            : "text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+          existingFeedback?.rating === "up" ? "text-green-600 dark:text-green-400" : "text-muted-foreground hover:text-foreground"
         }`}
       >
-        &#128077;
+        <ThumbsUp size={14} weight="thin" />
       </button>
       <button
         type="button"
         aria-label="Bad"
         disabled={isRating}
         onClick={() => handleRate("down")}
-        className={`rounded px-1 ${
-          existingFeedback?.rating === "down"
-            ? "text-red-600 dark:text-red-400"
-            : "text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
-        }`}
+        className={`rounded px-1 ${existingFeedback?.rating === "down" ? "text-destructive" : "text-muted-foreground hover:text-foreground"}`}
       >
-        &#128078;
+        <ThumbsDown size={14} weight="thin" />
       </button>
       {existingFeedback?.rating === "up" && (
         <button
           type="button"
           disabled={isPromoting || existingFeedback.promoted}
           onClick={handlePromote}
-          className="rounded border border-neutral-300 px-1.5 py-0.5 text-neutral-600 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-400"
+          className="rounded border border-border px-1.5 py-0.5 text-muted-foreground disabled:opacity-60"
         >
           {existingFeedback.promoted ? "Promoted" : isPromoting ? "Promoting..." : "Promote to graph"}
         </button>
       )}
-      {feedbackError && <span className="text-red-600 dark:text-red-400">{feedbackError}</span>}
+      {feedbackError && <span className="text-destructive">{feedbackError}</span>}
     </span>
   );
 }
