@@ -34,16 +34,14 @@ export function AnalysisTabs({
 
   return (
     <div className="mt-6">
-      <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800">
+      <div className="flex gap-1 border-b border-border">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             type="button"
             onClick={() => setActive(tab.id)}
             className={`px-3 py-2 text-sm font-medium ${
-              active === tab.id
-                ? "border-b-2 border-neutral-900 text-neutral-900 dark:border-neutral-100 dark:text-neutral-100"
-                : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+              active === tab.id ? "border-b-2 border-accent text-accent" : "text-muted-foreground hover:text-foreground"
             }`}
           >
             {tab.label}
@@ -53,7 +51,7 @@ export function AnalysisTabs({
 
       <div className="mt-4">
         {active === "original" && (
-          <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none rounded-lg border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
+          <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none rounded-lg border border-border bg-card p-5">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
           </div>
         )}
