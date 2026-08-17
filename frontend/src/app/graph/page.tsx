@@ -14,15 +14,10 @@ export default function GraphPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-12">
-      <Link
-        href="/"
-        className="text-sm text-neutral-500 hover:text-neutral-800 hover:underline dark:text-neutral-400 dark:hover:text-neutral-100"
-      >
+      <Link href="/" className="text-sm text-muted-foreground hover:text-foreground hover:underline">
         ← Back
       </Link>
-      <h1 className="mt-4 text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
-        Concept Graph
-      </h1>
+      <h1 className="mt-4 font-heading text-3xl font-bold tracking-tight text-foreground">Concept Graph</h1>
       <div className="mt-6">
         <ReviewQueuePanel onResolved={() => setGraphVersion((v) => v + 1)} />
       </div>

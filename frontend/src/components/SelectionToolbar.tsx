@@ -263,7 +263,7 @@ export function SelectionToolbar({
   return (
     <div
       ref={toolbarRef}
-      className="fixed z-10 flex flex-col gap-1 rounded-md border border-neutral-200 bg-white px-2 py-1 shadow-md dark:border-neutral-700 dark:bg-neutral-800"
+      className="fixed z-10 flex flex-col gap-1 rounded-md border border-border bg-card px-2 py-1 shadow-md"
       style={{ top: position.top, left: position.left }}
     >
       {commentMode ? (
@@ -277,13 +277,13 @@ export function SelectionToolbar({
               if (e.key === "Enter") handleSubmitComment();
             }}
             placeholder="Your note…"
-            className="rounded border border-neutral-300 px-2 py-1 text-xs dark:border-neutral-600 dark:bg-neutral-900"
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs"
           />
           <button
             type="button"
             onClick={handleSubmitComment}
             disabled={isSaving}
-            className="rounded px-2 py-1 text-xs text-neutral-700 disabled:opacity-50 dark:text-neutral-200"
+            className="rounded px-2 py-1 text-xs text-foreground disabled:opacity-50"
           >
             Save
           </button>
@@ -294,7 +294,7 @@ export function SelectionToolbar({
             type="button"
             onClick={handleSaveAsNote}
             disabled={isSaving}
-            className="rounded px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-100 disabled:opacity-50 dark:text-neutral-200 dark:hover:bg-neutral-700"
+            className="rounded px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-50"
           >
             Save as note
           </button>
@@ -302,13 +302,13 @@ export function SelectionToolbar({
             type="button"
             onClick={() => setCommentMode(true)}
             disabled={isSaving}
-            className="rounded px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-100 disabled:opacity-50 dark:text-neutral-200 dark:hover:bg-neutral-700"
+            className="rounded px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-50"
           >
             Add comment
           </button>
         </div>
       )}
-      {saveError && <p className="px-2 text-xs text-red-600 dark:text-red-400">{saveError}</p>}
+      {saveError && <p className="px-2 text-xs text-destructive">{saveError}</p>}
       {saveSuccessMessage && <p className="px-2 text-xs text-green-600 dark:text-green-400">{saveSuccessMessage}</p>}
     </div>
   );

@@ -31,16 +31,14 @@ export function SourceForm() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="mt-8 flex flex-col gap-3 rounded-lg border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900"
+      className="mt-8 flex flex-col gap-3 rounded-lg border border-border bg-card p-5 shadow-sm"
     >
       <div className="flex gap-1">
         <button
           type="button"
           onClick={() => setMode("link")}
           className={`rounded-md px-3 py-1 text-xs font-medium ${
-            mode === "link"
-              ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
-              : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+            mode === "link" ? "bg-accent text-accent-on" : "bg-muted text-muted-foreground"
           }`}
         >
           Paste link
@@ -49,9 +47,7 @@ export function SourceForm() {
           type="button"
           onClick={() => setMode("text")}
           className={`rounded-md px-3 py-1 text-xs font-medium ${
-            mode === "text"
-              ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
-              : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+            mode === "text" ? "bg-accent text-accent-on" : "bg-muted text-muted-foreground"
           }`}
         >
           Write text
@@ -65,7 +61,7 @@ export function SourceForm() {
           placeholder="https://example.com/article"
           required
           type="url"
-          className="rounded-md border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+          className="rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:border-accent"
         />
       ) : (
         <>
@@ -74,7 +70,7 @@ export function SourceForm() {
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Title"
             required
-            className="rounded-md border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+            className="rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:border-accent"
           />
           <textarea
             value={content}
@@ -82,17 +78,17 @@ export function SourceForm() {
             placeholder="Content"
             required
             rows={4}
-            className="rounded-md border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+            className="rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:border-accent"
           />
         </>
       )}
 
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
 
       <button
         type="submit"
         disabled={submitting}
-        className="self-end rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
+        className="self-end rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-on hover:bg-accent-hover disabled:opacity-50"
       >
         {submitting ? "Saving…" : "Save"}
       </button>

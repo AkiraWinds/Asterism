@@ -24,19 +24,15 @@ export function DigestView({
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm leading-relaxed text-neutral-800 dark:text-neutral-200">{digest.summary}</p>
+      <p className="text-sm leading-relaxed text-foreground">{digest.summary}</p>
 
       {digest.highlights.length > 0 && (
         <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-            Highlights
-          </h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Highlights</h3>
           <ul className="mt-2 flex flex-col gap-2">
             {digest.highlights.map((h) => (
-              <li key={h.id} className="text-sm text-neutral-800 dark:text-neutral-200">
-                <span className="mr-2 rounded bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                  {h.type}
-                </span>
+              <li key={h.id} className="text-sm text-foreground">
+                <span className="mr-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{h.type}</span>
                 {h.text}
               </li>
             ))}
@@ -46,12 +42,10 @@ export function DigestView({
 
       {digest.concepts.length > 0 && (
         <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-            Concepts
-          </h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Concepts</h3>
           <ul className="mt-2 flex flex-col gap-2">
             {digest.concepts.map((c) => (
-              <li key={c.id} className="flex flex-col gap-1 text-sm text-neutral-800 dark:text-neutral-200">
+              <li key={c.id} className="flex flex-col gap-1 text-sm text-foreground">
                 <div>
                   <span className="font-medium">{c.term}</span> — {c.definition}
                 </div>
@@ -71,10 +65,8 @@ export function DigestView({
 
       {digest.structure.length > 0 && (
         <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-            Structure
-          </h3>
-          <ol className="mt-2 list-decimal pl-5 text-sm text-neutral-800 dark:text-neutral-200">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Structure</h3>
+          <ol className="mt-2 list-decimal pl-5 text-sm text-foreground">
             {digest.structure.map((s, i) => (
               <li key={i}>{s}</li>
             ))}

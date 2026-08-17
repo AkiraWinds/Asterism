@@ -20,16 +20,16 @@ export function ConceptGraphView() {
   }, []);
 
   if (error) {
-    return <p className="text-sm text-red-600 dark:text-red-400">Couldn&apos;t load the concept graph: {error}</p>;
+    return <p className="text-sm text-destructive">Couldn&apos;t load the concept graph: {error}</p>;
   }
 
   if (!graph) {
-    return <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading…</p>;
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
 
   if (graph.nodes.length === 0) {
     return (
-      <p className="text-sm text-neutral-500 dark:text-neutral-400">
+      <p className="text-sm text-muted-foreground">
         No concepts yet — save a highlight from a source to start building the graph.
       </p>
     );
@@ -41,7 +41,7 @@ export function ConceptGraphView() {
   };
 
   return (
-    <div className="relative h-[70vh] w-full rounded-lg border border-neutral-200 dark:border-neutral-800">
+    <div className="relative h-[70vh] w-full rounded-lg border border-border">
       <ForceGraph2D
         graphData={graphData}
         nodeLabel="name"
@@ -51,9 +51,9 @@ export function ConceptGraphView() {
         }}
       />
       {selectedNode && (
-        <div className="absolute bottom-3 left-3 max-w-sm rounded-md border border-neutral-200 bg-white p-3 text-sm shadow-md dark:border-neutral-700 dark:bg-neutral-800">
-          <p className="font-medium text-neutral-900 dark:text-neutral-100">{selectedNode.term}</p>
-          <p className="mt-1 text-neutral-600 dark:text-neutral-300">{selectedNode.definition}</p>
+        <div className="absolute bottom-3 left-3 max-w-sm rounded-md border border-border bg-card p-3 text-sm shadow-md">
+          <p className="font-medium text-foreground">{selectedNode.term}</p>
+          <p className="mt-1 text-muted-foreground">{selectedNode.definition}</p>
         </div>
       )}
     </div>
