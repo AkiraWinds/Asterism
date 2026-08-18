@@ -69,6 +69,7 @@ export interface SourceSummary {
   id: string;
   title: string;
   created_at: string;
+  read_at: string | null;
 }
 
 export interface SourceDetail extends SourceSummary {
@@ -183,6 +184,12 @@ export async function getSource(id: string): Promise<SourceDetail> {
 export async function analyzeSource(id: string): Promise<AnalysisResult> {
   const res = await fetch(`${BACKEND_URL}/sources/${id}/analyze`, { method: "POST" });
   if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to analyze source"));
+  return res.json();
+}
+
+export async function markSourceRead(id: string): Promise<{ read_at: string }> {
+  const res = await fetch(`${BACKEND_URL}/sources/${id}/read`, { method: "POST" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to mark source read"));
   return res.json();
 }
 
