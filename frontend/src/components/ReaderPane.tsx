@@ -102,8 +102,9 @@ export function ReaderPane({
   // Keep the ref pointed at the latest closure so the auto-analyze effect
   // below can call it without listing `handleAnalyze` (a new function every
   // render) as a dependency.
-  // eslint-disable-next-line react-hooks/refs
-  handleAnalyzeRef.current = handleAnalyze;
+  useEffect(() => {
+    handleAnalyzeRef.current = handleAnalyze;
+  });
 
   // A freshly created source has no analysis.json yet — start it automatically
   // instead of leaving it behind a manual "Analyze" click.
