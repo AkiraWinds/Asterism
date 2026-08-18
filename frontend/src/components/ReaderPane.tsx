@@ -52,6 +52,12 @@ export function ReaderPane({
   useEffect(() => {
     currentSourceIdRef.current = sourceId;
     const requestedSourceId = sourceId;
+    // This effect intentionally resets all reader state when `sourceId`
+    // changes, because ReaderPane is reused across selections rather than
+    // remounted (see the currentSourceIdRef comment above) — the alternative
+    // (`key`-based remount) would drop the async-response race guard that
+    // comment documents.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSource(null);
     setLoadError(null);
     setError(null);
@@ -93,6 +99,10 @@ export function ReaderPane({
       if (currentSourceIdRef.current === requestedSourceId) setAnalyzing(false);
     }
   }
+  // Keep the ref pointed at the latest closure so the auto-analyze effect
+  // below can call it without listing `handleAnalyze` (a new function every
+  // render) as a dependency.
+  // eslint-disable-next-line react-hooks/refs
   handleAnalyzeRef.current = handleAnalyze;
 
   // A freshly created source has no analysis.json yet — start it automatically
