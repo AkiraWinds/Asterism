@@ -39,10 +39,19 @@ export function ReaderPane({
   const autoAnalyzeStarted = useRef(false);
   const alreadyMarkedRead = useRef(false);
   const dwellTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Always holds the *current* sourceId prop. getSource/analyzeSource are
+  // async and can resolve after the user has already switched to a different
+  // source — every .then/.catch below compares against this ref (not just
+  // the sourceId it closed over) before touching state, so a stale response
+  // for a source we've navigated away from can never bleed into what's
+  // currently rendered.
+  const currentSourceIdRef = useRef(sourceId);
 
   // Switching sources resets everything — this component is reused across
   // selections rather than remounted (sourceId is state, not a route param).
   useEffect(() => {
+    currentSourceIdRef.current = sourceId;
+    const requestedSourceId = sourceId;
     setSource(null);
     setLoadError(null);
     setActiveTab("reader");
@@ -55,24 +64,31 @@ export function ReaderPane({
     }
     getSource(sourceId)
       .then((s) => {
+        if (currentSourceIdRef.current !== requestedSourceId) return;
         setSource(s);
         alreadyMarkedRead.current = s.read_at !== null;
       })
-      .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load source"));
+      .catch((err) => {
+        if (currentSourceIdRef.current !== requestedSourceId) return;
+        setLoadError(err instanceof Error ? err.message : "Failed to load source");
+      });
   }, [sourceId]);
 
   const handleAnalyzeRef = useRef<() => void>(() => {});
 
   async function handleAnalyze() {
+    const requestedSourceId = sourceId;
     setError(null);
     setAnalyzing(true);
     try {
       const analysis = await analyzeSource(sourceId);
+      if (currentSourceIdRef.current !== requestedSourceId) return;
       setSource((prev) => (prev ? { ...prev, analysis } : prev));
     } catch (err) {
+      if (currentSourceIdRef.current !== requestedSourceId) return;
       setError(err instanceof Error ? err.message : "Failed to analyze source");
     } finally {
-      setAnalyzing(false);
+      if (currentSourceIdRef.current === requestedSourceId) setAnalyzing(false);
     }
   }
   handleAnalyzeRef.current = handleAnalyze;
@@ -86,16 +102,46 @@ export function ReaderPane({
     }
   }, [source]);
 
-  // Each tab is a fresh reading position — reset scroll and any pending
-  // dwell timer from a previous tab when switching.
-  useEffect(() => {
-    paneRef.current?.scrollTo({ top: 0 });
-    setScrollPct(0);
+  // Shared by handlePaneScroll and the tab-switch effect below: both need to
+  // start/stop the same "sat at (effectively) 100% for READ_DWELL_MS"
+  // countdown that ends in marking the source read.
+  function clearDwellTimer() {
     if (dwellTimeoutRef.current) {
       clearTimeout(dwellTimeoutRef.current);
       dwellTimeoutRef.current = null;
     }
-  }, [activeTab]);
+  }
+
+  function startDwellTimer() {
+    if (dwellTimeoutRef.current) return;
+    dwellTimeoutRef.current = setTimeout(() => {
+      dwellTimeoutRef.current = null;
+      alreadyMarkedRead.current = true;
+      markSourceRead(sourceId).then(() => onMarkedRead(sourceId));
+    }, READ_DWELL_MS);
+  }
+
+  // Each tab is a fresh reading position — reset scroll and any pending
+  // dwell timer from a previous tab when switching. Also re-runs whenever
+  // the Reader tab's underlying content string changes (i.e. right after it
+  // first renders for this source), so short content that already fits
+  // entirely within the pane gets checked below without waiting on a resize.
+  useEffect(() => {
+    const el = paneRef.current;
+    el?.scrollTo({ top: 0 });
+    clearDwellTimer();
+    if (activeTab === "reader" && el && el.scrollHeight <= el.clientHeight) {
+      // Content fits on screen without scrolling — no "scroll" DOM event will
+      // ever fire, so a scroll-driven check alone would never see this
+      // reach 100%. Treat "nothing left to scroll" the same as "scrolled all
+      // the way down" and let the same dwell timer decide whether it counts
+      // as read.
+      setScrollPct(1);
+      if (!alreadyMarkedRead.current) startDwellTimer();
+    } else {
+      setScrollPct(0);
+    }
+  }, [activeTab, source?.content]);
 
   useEffect(() => {
     return () => {
@@ -113,16 +159,9 @@ export function ReaderPane({
 
     if (alreadyMarkedRead.current) return;
     if (pct >= READ_SCROLL_THRESHOLD) {
-      if (!dwellTimeoutRef.current) {
-        dwellTimeoutRef.current = setTimeout(() => {
-          dwellTimeoutRef.current = null;
-          alreadyMarkedRead.current = true;
-          markSourceRead(sourceId).then(() => onMarkedRead(sourceId));
-        }, READ_DWELL_MS);
-      }
-    } else if (dwellTimeoutRef.current) {
-      clearTimeout(dwellTimeoutRef.current);
-      dwellTimeoutRef.current = null;
+      startDwellTimer();
+    } else {
+      clearDwellTimer();
     }
   }
 
