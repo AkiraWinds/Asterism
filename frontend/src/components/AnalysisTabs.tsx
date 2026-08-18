@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AnalysisResult } from "@/lib/api";
@@ -8,10 +7,10 @@ import { DigestView } from "./DigestView";
 import { CritiqueView } from "./CritiqueView";
 import { ClaimsView } from "./ClaimsView";
 
-type Tab = "original" | "digest" | "critique" | "claims";
+export type AnalysisTab = "reader" | "digest" | "critique" | "claims";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "original", label: "Original" },
+const TABS: { id: AnalysisTab; label: string }[] = [
+  { id: "reader", label: "Reader" },
   { id: "digest", label: "Digest" },
   { id: "critique", label: "Critique" },
   { id: "claims", label: "Claims" },
@@ -23,15 +22,17 @@ export function AnalysisTabs({
   analysis,
   onRetry,
   retrying,
+  active,
+  onTabChange,
 }: {
   sourceId: string;
   content: string;
   analysis: AnalysisResult;
   onRetry: () => void;
   retrying: boolean;
+  active: AnalysisTab;
+  onTabChange: (tab: AnalysisTab) => void;
 }) {
-  const [active, setActive] = useState<Tab>("original");
-
   return (
     <div className="mt-6">
       <div className="flex gap-1 border-b border-border">
@@ -39,7 +40,7 @@ export function AnalysisTabs({
           <button
             key={tab.id}
             type="button"
-            onClick={() => setActive(tab.id)}
+            onClick={() => onTabChange(tab.id)}
             className={`px-3 py-2 text-sm font-medium ${
               active === tab.id ? "border-b-2 border-accent text-accent" : "text-muted-foreground hover:text-foreground"
             }`}
@@ -50,7 +51,7 @@ export function AnalysisTabs({
       </div>
 
       <div className="mt-4">
-        {active === "original" && (
+        {active === "reader" && (
           <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none rounded-lg border border-border bg-card p-5">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
           </div>
