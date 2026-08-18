@@ -14,6 +14,7 @@ export default function WorkspacePage() {
   const [sources, setSources] = useState<SourceSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [attachedHighlight, setAttachedHighlight] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     listSources().then(setSources);
@@ -27,9 +28,13 @@ export default function WorkspacePage() {
   }
 
   async function handleDelete(id: string) {
-    await deleteSource(id);
-    setSources((prev) => prev.filter((s) => s.id !== id));
-    if (selectedId === id) setSelectedId(null);
+    try {
+      await deleteSource(id);
+      setSources((prev) => prev.filter((s) => s.id !== id));
+      if (selectedId === id) setSelectedId(null);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete source");
+    }
   }
 
   function handleCreated(source: SourceSummary) {
@@ -37,19 +42,29 @@ export default function WorkspacePage() {
     handleSelect(source.id);
   }
 
-  function handleMarkedRead(id: string) {
-    setSources((prev) => prev.map((s) => (s.id === id ? { ...s, read_at: new Date().toISOString() } : s)));
+  function handleAdded(source: SourceSummary) {
+    setSources((prev) => [source, ...prev]);
+  }
+
+  function handleMarkedRead(id: string, readAt: string) {
+    setSources((prev) => prev.map((s) => (s.id === id ? { ...s, read_at: readAt } : s)));
   }
 
   return (
     <div className="flex min-h-0 flex-1">
       <div className="w-1/4 min-w-[240px] border-r border-border">
+        {deleteError && (
+          <p className="border-b border-border bg-red-50 p-2 text-xs text-destructive dark:bg-red-950/40">
+            {deleteError}
+          </p>
+        )}
         <LibraryColumn
           sources={sources}
           selectedId={selectedId}
           onSelect={handleSelect}
           onDelete={handleDelete}
           onCreated={handleCreated}
+          onAdded={handleAdded}
         />
       </div>
 

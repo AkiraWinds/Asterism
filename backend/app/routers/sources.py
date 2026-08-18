@@ -49,7 +49,6 @@ from app.repositories.source_repository import (
     read_conversation,
     read_feedback,
     read_highlights,
-    read_reading_state,
     read_source_url,
     update_highlight_note,
     upsert_feedback,

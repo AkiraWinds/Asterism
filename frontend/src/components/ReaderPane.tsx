@@ -6,7 +6,7 @@
 // by `sourceId` instead of owning its own route, plus a scroll-progress bar
 // and auto-read mechanic that didn't exist before. See
 // docs/superpowers/specs/2026-08-18-unified-reader-layout-design.md.
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { analyzeSource, getSource, markSourceRead, SourceDetail } from "@/lib/api";
 import { TriageCard } from "./TriageCard";
 import { AnalysisTabs, AnalysisTab } from "./AnalysisTabs";
@@ -25,7 +25,7 @@ export function ReaderPane({
   onHighlightSelected,
 }: {
   sourceId: string;
-  onMarkedRead: (sourceId: string) => void;
+  onMarkedRead: (sourceId: string, readAt: string) => void;
   onHighlightSelected: (text: string) => void;
 }) {
   const [source, setSource] = useState<SourceDetail | null>(null);
@@ -39,6 +39,14 @@ export function ReaderPane({
   const autoAnalyzeStarted = useRef(false);
   const alreadyMarkedRead = useRef(false);
   const dwellTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards the "content fits on screen without scrolling" auto-read path
+  // below: without it, an article the user has merely selected — never
+  // actually scrolled, clicked, or touched a key in — could get silently
+  // marked read after READ_DWELL_MS with zero reading intent. Set true by
+  // the pane's scroll handler and by a pointerdown/keydown listener on the
+  // pane container; the normal scroll-to-98%-and-dwell path already requires
+  // a real scroll event to fire at all, so it doesn't need this guard.
+  const hasInteractedRef = useRef(false);
   // Always holds the *current* sourceId prop. getSource/analyzeSource are
   // async and can resolve after the user has already switched to a different
   // source — every .then/.catch below compares against this ref (not just
@@ -66,6 +74,7 @@ export function ReaderPane({
     setScrollPct(0);
     autoAnalyzeStarted.current = false;
     alreadyMarkedRead.current = false;
+    hasInteractedRef.current = false;
     if (dwellTimeoutRef.current) {
       clearTimeout(dwellTimeoutRef.current);
       dwellTimeoutRef.current = null;
@@ -118,21 +127,23 @@ export function ReaderPane({
   // Shared by handlePaneScroll and the tab-switch effect below: both need to
   // start/stop the same "sat at (effectively) 100% for READ_DWELL_MS"
   // countdown that ends in marking the source read.
-  function clearDwellTimer() {
+  const clearDwellTimer = useCallback(() => {
     if (dwellTimeoutRef.current) {
       clearTimeout(dwellTimeoutRef.current);
       dwellTimeoutRef.current = null;
     }
-  }
+  }, []);
 
-  function startDwellTimer() {
+  const startDwellTimer = useCallback(() => {
     if (dwellTimeoutRef.current) return;
     dwellTimeoutRef.current = setTimeout(() => {
       dwellTimeoutRef.current = null;
       alreadyMarkedRead.current = true;
-      markSourceRead(sourceId).then(() => onMarkedRead(sourceId));
+      markSourceRead(sourceId)
+        .then(({ read_at }) => onMarkedRead(sourceId, read_at))
+        .catch((err) => console.error("Failed to mark source read:", err));
     }, READ_DWELL_MS);
-  }
+  }, [sourceId, onMarkedRead]);
 
   // Each tab is a fresh reading position — reset scroll and any pending
   // dwell timer from a previous tab when switching. Also re-runs whenever
@@ -155,13 +166,15 @@ export function ReaderPane({
       // ever fire, so a scroll-driven check alone would never see this
       // reach 100%. Treat "nothing left to scroll" the same as "scrolled all
       // the way down" and let the same dwell timer decide whether it counts
-      // as read.
+      // as read — but only once the user has actually interacted with the
+      // pane (see hasInteractedRef above), so merely selecting an article
+      // that happens to fit on screen doesn't silently arm the timer.
       setScrollPct(1);
-      if (!alreadyMarkedRead.current) startDwellTimer();
+      if (!alreadyMarkedRead.current && hasInteractedRef.current) startDwellTimer();
     } else {
       setScrollPct(0);
     }
-  }, [activeTab, source?.analysis]);
+  }, [activeTab, source?.analysis, startDwellTimer, clearDwellTimer]);
 
   useEffect(() => {
     return () => {
@@ -170,6 +183,7 @@ export function ReaderPane({
   }, []);
 
   function handlePaneScroll() {
+    hasInteractedRef.current = true;
     if (activeTab !== "reader") return;
     const el = paneRef.current;
     if (!el) return;
@@ -182,6 +196,25 @@ export function ReaderPane({
       startDwellTimer();
     } else {
       clearDwellTimer();
+    }
+  }
+
+  // Covers the "fits on screen without scrolling" case: a scroll event will
+  // never fire for such content, so the first real interaction of any kind
+  // (pointer or keyboard) is what arms the dwell timer instead — see
+  // hasInteractedRef above.
+  function handlePaneInteract() {
+    if (hasInteractedRef.current) return;
+    hasInteractedRef.current = true;
+    const el = paneRef.current;
+    if (
+      activeTab === "reader" &&
+      source?.analysis != null &&
+      el &&
+      el.scrollHeight <= el.clientHeight &&
+      !alreadyMarkedRead.current
+    ) {
+      startDwellTimer();
     }
   }
 
@@ -203,7 +236,14 @@ export function ReaderPane({
           />
         </div>
       )}
-      <div ref={paneRef} onScroll={handlePaneScroll} className="flex-1 overflow-y-auto px-6 py-6">
+      <div
+        ref={paneRef}
+        onScroll={handlePaneScroll}
+        onPointerDown={handlePaneInteract}
+        onKeyDown={handlePaneInteract}
+        tabIndex={-1}
+        className="flex-1 overflow-y-auto px-6 py-6"
+      >
         <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground">{source.title}</h1>
 
         {source.analysis?.triage && <TriageCard triage={source.analysis.triage} />}

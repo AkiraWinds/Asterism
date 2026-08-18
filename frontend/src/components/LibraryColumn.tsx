@@ -18,12 +18,14 @@ export function LibraryColumn({
   onSelect,
   onDelete,
   onCreated,
+  onAdded,
 }: {
   sources: SourceSummary[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onCreated: (source: SourceSummary) => void;
+  onAdded: (source: SourceSummary) => void;
 }) {
   const [tab, setTab] = useState<Tab>("library");
 
@@ -61,7 +63,7 @@ export function LibraryColumn({
             <SourceListSection sources={sources} selectedId={selectedId} onSelect={onSelect} onDelete={onDelete} />
           </div>
         ) : (
-          <RadarPanel />
+          <RadarPanel onAdded={onAdded} />
         )}
       </div>
     </div>
