@@ -25,6 +25,8 @@ from app.repositories.source_repository import (
     find_feedback_entry,
     upsert_feedback,
     mark_feedback_promoted,
+    mark_source_read,
+    read_reading_state,
 )
 from app.schemas.analysis import AnalysisResult, Claim, Digest
 from app.schemas.chat import ChatTurn
@@ -281,6 +283,43 @@ def test_append_highlight_creates_and_appends(tmp_path: Path):
     history = read_highlights(tmp_path, record.id)
     assert [h.id for h in history.highlights] == ["h_1", "h_2"]
     assert history.highlights[1].note == "a note"
+
+
+def test_read_reading_state_returns_none_when_no_file(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="c")
+    assert read_reading_state(tmp_path, record.id) is None
+
+
+def test_mark_source_read_creates_reading_state(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="c")
+    state = mark_source_read(tmp_path, record.id)
+    assert state.read_at
+    assert read_reading_state(tmp_path, record.id).read_at == state.read_at
+
+
+def test_mark_source_read_is_idempotent(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="c")
+    first = mark_source_read(tmp_path, record.id)
+    second = mark_source_read(tmp_path, record.id)
+    assert first.read_at == second.read_at
+
+
+def test_list_sources_includes_read_at(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="c")
+    unread = list_sources(tmp_path)
+    assert unread[0].read_at is None
+
+    mark_source_read(tmp_path, record.id)
+    read = list_sources(tmp_path)
+    assert read[0].read_at is not None
+
+
+def test_get_source_includes_read_at(tmp_path: Path):
+    record = create_source(tmp_path, title="T", content="c")
+    assert get_source(tmp_path, record.id).read_at is None
+
+    mark_source_read(tmp_path, record.id)
+    assert get_source(tmp_path, record.id).read_at is not None
 
 
 def test_read_source_url_returns_none_for_pasted_text_source(tmp_path: Path):

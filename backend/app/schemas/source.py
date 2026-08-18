@@ -16,6 +16,7 @@ class SourceSummaryResponse(BaseModel):
     id: str
     title: str
     created_at: str
+    read_at: str | None = None
 
 
 class SourceDetailResponse(BaseModel):
@@ -24,3 +25,4 @@ class SourceDetailResponse(BaseModel):
     created_at: str
     content: str
     analysis: AnalysisResult | None = None
+    read_at: str | None = None

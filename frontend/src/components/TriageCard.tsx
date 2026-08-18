@@ -10,15 +10,13 @@ const ACTION_LABELS: Record<Triage["action"], string> = {
 
 export function TriageCard({ triage }: { triage: Triage }) {
   return (
-    <div className="mt-6 rounded-lg border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
+    <div className="mt-6 rounded-lg border border-border bg-card p-5">
       <div className="flex items-center justify-between">
-        <span className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-          {ACTION_LABELS[triage.action]}
-        </span>
-        <span className="text-sm text-neutral-500 dark:text-neutral-400">Score {triage.score}/100</span>
+        <span className="font-heading text-xl font-semibold text-foreground">{ACTION_LABELS[triage.action]}</span>
+        <span className="text-sm text-muted-foreground">Score {triage.score}/100</span>
       </div>
-      <p className="mt-2 text-sm text-neutral-700 dark:text-neutral-300">{triage.reason}</p>
-      <dl className="mt-3 flex gap-6 text-xs text-neutral-500 dark:text-neutral-400">
+      <p className="mt-2 text-sm text-foreground">{triage.reason}</p>
+      <dl className="mt-3 flex gap-6 text-xs text-muted-foreground">
         <div>
           <dt className="uppercase tracking-wide">Read time</dt>
           <dd>{triage.read_time_minutes} min</dd>

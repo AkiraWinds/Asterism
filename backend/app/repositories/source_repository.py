@@ -11,6 +11,7 @@ from app.schemas.analysis import AnalysisResult
 from app.schemas.chat import ChatHistory, ChatTurn, Conversation
 from app.schemas.feedback import FeedbackEntry, FeedbackHistory
 from app.schemas.highlight import Highlight, HighlightHistory
+from app.schemas.reading_state import ReadingState
 
 
 @dataclass
@@ -19,6 +20,7 @@ class SourceRecord:
     title: str
     created_at: str
     content: str
+    read_at: str | None = None
 
 
 def create_source(data_root: Path, title: str, content: str) -> SourceRecord:
@@ -83,12 +85,14 @@ def list_sources(data_root: Path) -> list[SourceRecord]:
         if not meta_path.exists():
             continue
         meta = json.loads(meta_path.read_text())
+        reading_state = read_reading_state(data_root, meta["id"])
         records.append(
             SourceRecord(
                 id=meta["id"],
                 title=meta["original_title"],
                 created_at=meta["created_at"],
                 content="",
+                read_at=reading_state.read_at if reading_state else None,
             )
         )
     records.sort(key=lambda r: r.created_at, reverse=True)
@@ -113,11 +117,13 @@ def get_source(data_root: Path, source_id: str) -> SourceRecord | None:
     raw = content_path.read_text()
     body = raw.split("---", 2)[-1].lstrip("\n") if raw.startswith("---") else raw
 
+    reading_state = read_reading_state(data_root, source_id)
     return SourceRecord(
         id=meta["id"],
         title=meta["original_title"],
         created_at=meta["created_at"],
         content=body,
+        read_at=reading_state.read_at if reading_state else None,
     )
 
 
@@ -328,6 +334,28 @@ def read_highlights(data_root: Path, source_id: str) -> HighlightHistory:
     if not highlights_path.exists():
         return HighlightHistory()
     return HighlightHistory.model_validate_json(highlights_path.read_text())
+
+
+def read_reading_state(data_root: Path, source_id: str) -> ReadingState | None:
+    """Read reading_state.json if it exists, else None — absence means unread,
+    consistent with this repo's file-existence-inferred-status pattern."""
+    path = data_root / "library" / source_id / "reading_state.json"
+    if not path.exists():
+        return None
+    return ReadingState.model_validate_json(path.read_text())
+
+
+def mark_source_read(data_root: Path, source_id: str) -> ReadingState:
+    """Mark a source read, idempotently — if reading_state.json already exists,
+    return it unchanged rather than overwriting read_at with a later timestamp
+    (a source doesn't get "more read" on a second scroll-to-bottom)."""
+    existing = read_reading_state(data_root, source_id)
+    if existing is not None:
+        return existing
+    state = ReadingState(read_at=datetime.now(timezone.utc).isoformat())
+    path = data_root / "library" / source_id / "reading_state.json"
+    path.write_text(state.model_dump_json(indent=2))
+    return state
 
 
 def read_source_url(data_root: Path, source_id: str) -> str | None:

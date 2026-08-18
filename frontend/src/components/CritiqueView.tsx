@@ -36,10 +36,8 @@ export function CritiqueView({
         if (items.length === 0) return null;
         return (
           <div key={key}>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-              {label}
-            </h3>
-            <ul className="mt-2 flex flex-col gap-2 pl-5 text-sm text-neutral-800 dark:text-neutral-200">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</h3>
+            <ul className="mt-2 flex flex-col gap-2 pl-5 text-sm text-foreground">
               {items.map((item, i) => (
                 <li key={i} className="list-disc">
                   {item}
