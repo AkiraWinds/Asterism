@@ -54,6 +54,8 @@ export function ReaderPane({
     const requestedSourceId = sourceId;
     setSource(null);
     setLoadError(null);
+    setError(null);
+    setAnalyzing(false);
     setActiveTab("reader");
     setScrollPct(0);
     autoAnalyzeStarted.current = false;
@@ -123,14 +125,21 @@ export function ReaderPane({
 
   // Each tab is a fresh reading position — reset scroll and any pending
   // dwell timer from a previous tab when switching. Also re-runs whenever
-  // the Reader tab's underlying content string changes (i.e. right after it
-  // first renders for this source), so short content that already fits
-  // entirely within the pane gets checked below without waiting on a resize.
+  // `source.analysis` changes — that's the same condition the JSX below uses
+  // to decide whether AnalysisTabs (which is what actually mounts the Reader
+  // content into the pane) is rendered at all, vs. the "Analyze"/"Analyzing…"
+  // button. Before analysis finishes, the pane only holds the title + that
+  // button, which is always short — checking un-scrollability against
+  // `source?.content` (a string that's already available pre-analysis) would
+  // measure that placeholder instead of the real content and start the dwell
+  // timer on every freshly created source. Gating on `source?.analysis`
+  // ensures this only ever measures the pane once the real Reader content is
+  // actually mounted.
   useEffect(() => {
     const el = paneRef.current;
     el?.scrollTo({ top: 0 });
     clearDwellTimer();
-    if (activeTab === "reader" && el && el.scrollHeight <= el.clientHeight) {
+    if (activeTab === "reader" && source?.analysis != null && el && el.scrollHeight <= el.clientHeight) {
       // Content fits on screen without scrolling — no "scroll" DOM event will
       // ever fire, so a scroll-driven check alone would never see this
       // reach 100%. Treat "nothing left to scroll" the same as "scrolled all
@@ -141,7 +150,7 @@ export function ReaderPane({
     } else {
       setScrollPct(0);
     }
-  }, [activeTab, source?.content]);
+  }, [activeTab, source?.analysis]);
 
   useEffect(() => {
     return () => {
