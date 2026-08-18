@@ -129,6 +129,34 @@ def test_create_source_from_url_extraction_config_error_returns_400(tmp_path: Pa
     assert response.json()["error_type"] == "config"
 
 
+def test_mark_source_read(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+
+    created = client.post("/sources", json={"title": "T", "content": "c"}).json()
+    assert created["read_at"] is None
+
+    response = client.post(f"/sources/{created['id']}/read")
+    assert response.status_code == 200
+    assert response.json()["read_at"]
+
+    # Idempotent: a second call returns the same read_at.
+    second = client.post(f"/sources/{created['id']}/read")
+    assert second.json()["read_at"] == response.json()["read_at"]
+
+    # Reflected back in list/get.
+    listed = client.get("/sources").json()
+    assert listed[0]["read_at"] == response.json()["read_at"]
+    fetched = client.get(f"/sources/{created['id']}").json()
+    assert fetched["read_at"] == response.json()["read_at"]
+
+
+def test_mark_missing_source_read_returns_404(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+
+    response = client.post("/sources/does-not-exist/read")
+    assert response.status_code == 404
+
+
 def test_create_source_with_prefetched_html_skips_fetch_url(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
 

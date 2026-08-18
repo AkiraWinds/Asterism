@@ -44,10 +44,12 @@ from app.repositories.source_repository import (
     list_conversations,
     list_sources,
     mark_feedback_promoted,
+    mark_source_read,
     read_analysis,
     read_conversation,
     read_feedback,
     read_highlights,
+    read_reading_state,
     read_source_url,
     update_highlight_note,
     upsert_feedback,
@@ -59,6 +61,7 @@ from app.schemas.chat import ChatRequest, ChatTurn, Conversation, ConversationSu
 from app.schemas.feedback import FeedbackEntry, FeedbackHistory, FeedbackRequest
 from app.schemas.graph import HighlightProcessResult
 from app.schemas.highlight import Highlight, HighlightCreateRequest, HighlightHistory, HighlightUpdateRequest
+from app.schemas.reading_state import ReadingState
 from app.schemas.source import (
     SourceCreateRequest,
     SourceDetailResponse,
@@ -142,7 +145,8 @@ def create_source_endpoint(payload: SourceCreateRequest):
 
     record = create_source(data_root, title=payload.title, content=payload.content)
     return SourceDetailResponse(
-        id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=None
+        id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=None,
+        read_at=None,
     )
 
 
@@ -150,7 +154,7 @@ def create_source_endpoint(payload: SourceCreateRequest):
 def list_sources_endpoint() -> list[SourceSummaryResponse]:
     records = list_sources(get_data_root())
     return [
-        SourceSummaryResponse(id=r.id, title=r.title, created_at=r.created_at) for r in records
+        SourceSummaryResponse(id=r.id, title=r.title, created_at=r.created_at, read_at=r.read_at) for r in records
     ]
 
 
@@ -165,8 +169,17 @@ def get_source_endpoint(source_id: str) -> SourceDetailResponse:
     # AnalysisResult with the *_error fields set accordingly in either case.
     analysis = read_analysis(data_root, source_id)
     return SourceDetailResponse(
-        id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=analysis
+        id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=analysis,
+        read_at=record.read_at,
     )
+
+
+@router.post("/{source_id}/read", response_model=ReadingState)
+def mark_source_read_endpoint(source_id: str) -> ReadingState:
+    data_root = get_data_root()
+    if get_source(data_root, source_id) is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return mark_source_read(data_root, source_id)
 
 
 @router.delete("/{source_id}", status_code=204)
