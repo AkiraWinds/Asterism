@@ -6,10 +6,10 @@
 // elsewhere (see docs/superpowers/specs/2026-08-19-graph-wiki-panel-design.md
 // for why this is a deliberate scope boundary, not an oversight).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { GraphConceptNode, WikiPage, getWikiPageByConceptId, getWikiPageBySlug } from "@/lib/api";
+import { GraphConceptNode, WikiPage, WikiPageAspect, getWikiPageByConceptId, getWikiPageBySlug } from "@/lib/api";
 
 const MIN_PROVENANCE_COUNT = 3; // mirrors backend/app/wiki/selection.py's threshold, for the explanatory copy below
 
@@ -20,9 +20,15 @@ export function WikiPagePanel({ node }: { node: GraphConceptNode | null }) {
   // When set, the panel is showing this aspect's body instead of the
   // overview's — cleared whenever the selected graph node changes.
   const [activeAspect, setActiveAspect] = useState<WikiPage | null>(null);
+  // Tracks the slug of the most recently clicked aspect so a late-resolving
+  // fetch for an aspect the user has already moved on from can be dropped
+  // instead of clobbering state (see openAspect below).
+  const latestAspectSlug = useRef<string | null>(null);
 
   useEffect(() => {
+    let stale = false;
     setActiveAspect(null);
+    latestAspectSlug.current = null;
     setError(null);
     if (node === null) {
       setPage(null);
@@ -30,18 +36,41 @@ export function WikiPagePanel({ node }: { node: GraphConceptNode | null }) {
     }
     setLoading(true);
     getWikiPageByConceptId(node.id)
-      .then(setPage)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load wiki page"))
-      .finally(() => setLoading(false));
+      .then((result) => {
+        if (!stale) setPage(result);
+      })
+      .catch((err) => {
+        if (!stale) setError(err instanceof Error ? err.message : "Failed to load wiki page");
+      })
+      .finally(() => {
+        if (!stale) setLoading(false);
+      });
+    // Cleanup runs when `node` changes again (or the component unmounts)
+    // before this fetch resolves — mark it stale so its callbacks no-op.
+    return () => {
+      stale = true;
+    };
   }, [node]);
 
-  function openAspect(aspect: { slug: string }) {
+  function openAspect(aspect: WikiPageAspect) {
+    latestAspectSlug.current = aspect.slug;
     setLoading(true);
     setError(null);
     getWikiPageBySlug(aspect.slug)
-      .then(setActiveAspect)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load aspect page"))
-      .finally(() => setLoading(false));
+      .then((result) => {
+        // Drop this response if the user has since clicked a different
+        // aspect (or the node/effect above reset the tracked slug).
+        if (latestAspectSlug.current !== aspect.slug) return;
+        setActiveAspect(result);
+      })
+      .catch((err) => {
+        if (latestAspectSlug.current !== aspect.slug) return;
+        setError(err instanceof Error ? err.message : "Failed to load aspect page");
+      })
+      .finally(() => {
+        if (latestAspectSlug.current !== aspect.slug) return;
+        setLoading(false);
+      });
   }
 
   if (node === null) {
