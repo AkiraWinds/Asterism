@@ -8,10 +8,13 @@ import { getGraph, GraphData } from "@/lib/api";
 // loaded client-side only (Next.js SSR would otherwise crash on import).
 const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), { ssr: false });
 
-export function ConceptGraphView() {
+export function ConceptGraphView({
+  onSelectNode,
+}: {
+  onSelectNode: (node: GraphData["nodes"][number] | null) => void;
+}) {
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedNode, setSelectedNode] = useState<GraphData["nodes"][number] | null>(null);
 
   useEffect(() => {
     getGraph()
@@ -47,15 +50,9 @@ export function ConceptGraphView() {
         nodeLabel="name"
         onNodeClick={(node: { id?: string | number }) => {
           const full = graph.nodes.find((n) => n.id === String(node.id)) ?? null;
-          setSelectedNode(full);
+          onSelectNode(full);
         }}
       />
-      {selectedNode && (
-        <div className="absolute bottom-3 left-3 max-w-sm rounded-md border border-border bg-card p-3 text-sm shadow-md">
-          <p className="font-medium text-foreground">{selectedNode.term}</p>
-          <p className="mt-1 text-muted-foreground">{selectedNode.definition}</p>
-        </div>
-      )}
     </div>
   );
 }
