@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { getGraph, GraphData } from "@/lib/api";
 
@@ -44,12 +44,23 @@ export function ConceptGraphView({
     return () => observer.disconnect();
   }, []);
 
-  const graphData = graph
-    ? {
-        nodes: graph.nodes.map((n) => ({ id: n.id, name: n.term, val: n.self_relevant ? 2 : 1 })),
-        links: graph.edges.map((e) => ({ source: e.from_id, target: e.to_id, label: e.type })),
-      }
-    : null;
+  // Memoized on `graph` specifically (not recomputed on every render): this
+  // component re-renders on every click (selection state lives one level up
+  // in GraphPage, and clicking triggers that parent to re-render) and on
+  // every ResizeObserver callback. Without memoizing, ForceGraph2D would see
+  // a brand-new graphData object reference on each of those — even though
+  // the underlying nodes/edges haven't changed — and visibly restart its
+  // force simulation, producing a jarring jump on every click.
+  const graphData = useMemo(
+    () =>
+      graph
+        ? {
+            nodes: graph.nodes.map((n) => ({ id: n.id, name: n.term, val: n.self_relevant ? 2 : 1 })),
+            links: graph.edges.map((e) => ({ source: e.from_id, target: e.to_id, label: e.type })),
+          }
+        : null,
+    [graph]
+  );
 
   return (
     <div ref={containerRef} className="relative h-[560px] w-full overflow-hidden rounded-lg border border-border">
