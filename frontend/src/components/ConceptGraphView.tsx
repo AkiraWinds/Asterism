@@ -22,6 +22,22 @@ export function ConceptGraphView({
   // dimensions instead.
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  // The canvas is painted, not styled via CSS, so it can't inherit this
+  // app's theme tokens (globals.css's --app-* variables) the way the rest
+  // of the UI does. This app has no manual light/dark toggle — theme is
+  // purely OS-driven via `prefers-color-scheme` — so mirroring that same
+  // media query here, and hardcoding the two token values it switches
+  // between, is the canvas-side equivalent of what every other component
+  // gets for free through CSS variables.
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    const mql = window.matchMedia("(prefers-color-scheme: dark)");
+    setIsDark(mql.matches);
+    const onChange = (e: MediaQueryListEvent) => setIsDark(e.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
 
   useEffect(() => {
     getGraph()
@@ -79,6 +95,15 @@ export function ConceptGraphView({
           height={dimensions.height}
           graphData={graphData}
           nodeLabel="name"
+          // Mirrors globals.css's --app-muted-foreground (the token this
+          // app already uses for secondary/dim content) — read directly
+          // from the media-query state above, since the canvas can't
+          // consume CSS variables itself. Node color intentionally left at
+          // the library default: differentiating nodes visually by
+          // provenance tier is explicitly out of scope for this feature
+          // (see docs/superpowers/specs/2026-08-19-graph-wiki-panel-design.md).
+          linkColor={() => (isDark ? "#A8A2B8" : "#71717A")}
+          linkWidth={1}
           onNodeClick={(node: { id?: string | number }) => {
             const full = graph.nodes.find((n) => n.id === String(node.id)) ?? null;
             onSelectNode(full);
