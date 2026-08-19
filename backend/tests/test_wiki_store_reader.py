@@ -91,3 +91,62 @@ def test_resolve_citations_falls_back_to_source_id_when_nothing_resolves(tmp_pat
     citations = resolve_citations(tmp_path, [{"source_id": "s_missing", "highlight_id": None}])
 
     assert citations == [{"source_id": "s_missing", "label": "s_missing", "quote": None}]
+
+
+# scan_wiki_pages tests
+from app.wiki.store_reader import scan_wiki_pages
+
+
+def test_scan_wiki_pages_finds_pages_by_concept_id(tmp_path: Path):
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+    (wiki_dir / "rag.md").write_text(
+        '---\nconcept_id: "c_1"\nterm: "RAG"\nupdated_at: "2026-08-01T00:00:00Z"\n'
+        'source_highlight_count: 3\nsource_provenance_hash: "abc"\nsource_ids: []\n---\n\nBody text.\n'
+    )
+
+    pages = scan_wiki_pages(wiki_dir)
+
+    assert pages == {"c_1": {"slug": "rag", "frontmatter": {
+        "concept_id": "c_1", "term": "RAG", "updated_at": "2026-08-01T00:00:00Z",
+        "source_highlight_count": 3, "source_provenance_hash": "abc", "source_ids": [],
+    }}}
+
+
+def test_scan_wiki_pages_skips_index_and_log(tmp_path: Path):
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+    (wiki_dir / "index.md").write_text("# Wiki Index\n")
+    (wiki_dir / "log.md").write_text("## [2026-08-01] wiki-compile\n")
+
+    assert scan_wiki_pages(wiki_dir) == {}
+
+
+def test_scan_wiki_pages_skips_unparseable_frontmatter(tmp_path: Path):
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+    (wiki_dir / "broken.md") .write_text("---\nterm: not valid json\n---\n\nBody.\n")
+
+    assert scan_wiki_pages(wiki_dir) == {}
+
+
+def test_scan_wiki_pages_skips_aspect_pages(tmp_path: Path):
+    # Forward-compat with PR #13 (feat/wiki-concept-split): an aspect page
+    # carries the *same* concept_id as its parent overview page plus an
+    # `aspect_of` key. Without this exclusion, a concept with aspect pages
+    # would resolve ambiguously (multiple files matching one concept_id).
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+    (wiki_dir / "rag.md").write_text(
+        '---\nconcept_id: "c_1"\nterm: "RAG"\nupdated_at: "2026-08-01T00:00:00Z"\n'
+        'source_highlight_count: 3\nsource_provenance_hash: "abc"\nsource_ids: []\n---\n\nOverview.\n'
+    )
+    (wiki_dir / "rag-evaluation.md").write_text(
+        '---\nconcept_id: "c_1"\nterm: "Evaluation"\naspect_of: "rag"\n'
+        'updated_at: "2026-08-01T00:00:00Z"\nsource_ids: []\n---\n\nAspect body.\n'
+    )
+
+    pages = scan_wiki_pages(wiki_dir)
+
+    assert list(pages.keys()) == ["c_1"]
+    assert pages["c_1"]["slug"] == "rag"

@@ -17,7 +17,6 @@ from app.wiki.lint import find_orphan_concepts, find_unexplained_contradictions
 from app.wiki.prompts import build_wiki_page_prompt, parse_wiki_page_response
 from app.wiki.render import (
     extract_synthesis_body,
-    parse_wiki_page_frontmatter,
     render_index,
     render_log_entry,
     render_related_section,
@@ -26,7 +25,7 @@ from app.wiki.render import (
 )
 from app.wiki.selection import select_qualifying_concepts
 from app.wiki.slug import unique_slug
-from app.wiki.store_reader import get_concept_provenance, get_edges_for_concept, resolve_citations
+from app.wiki.store_reader import get_concept_provenance, get_edges_for_concept, resolve_citations, scan_wiki_pages
 
 logger = logging.getLogger(__name__)
 
@@ -35,30 +34,6 @@ def _now_iso() -> str:
     # Codebase convention (see test fixtures) uses a trailing "Z" rather
     # than the "+00:00" offset isoformat() emits by default.
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _scan_existing_pages(wiki_dir: Path) -> dict[str, dict]:
-    """concept_id -> {"slug", "frontmatter"} for every existing wiki page, so
-    re-runs keep the same slug/filename for the same concept instead of
-    treating a concept's own prior page as a collision against itself."""
-    pages = {}
-    if not wiki_dir.exists():
-        return pages
-    for path in wiki_dir.glob("*.md"):
-        if path.stem in ("index", "log"):
-            continue
-        # Wiki pages are user-editable output — a hand-edited/corrupt
-        # frontmatter line (e.g. an unquoted `term:` value) must not abort
-        # the whole compile run. Treat an unparseable page as "no existing
-        # page": the concept will simply be regenerated under a fresh slug.
-        try:
-            frontmatter = parse_wiki_page_frontmatter(path.read_text())
-        except ValueError:  # json.JSONDecodeError is a ValueError subclass
-            logger.warning("Skipping unparseable wiki page frontmatter: %s", path)
-            continue
-        if frontmatter and "concept_id" in frontmatter:
-            pages[frontmatter["concept_id"]] = {"slug": path.stem, "frontmatter": frontmatter}
-    return pages
 
 
 def run_compile(data_root: Path, llm_provider: Provider) -> dict:
@@ -74,10 +49,10 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
     provenance_by_concept = {c["id"]: get_concept_provenance(db_path, c["id"]) for c in concepts}
     qualifying = select_qualifying_concepts(concepts, provenance_by_concept)
 
-    existing_pages = _scan_existing_pages(wiki_dir)
+    existing_pages = scan_wiki_pages(wiki_dir)
     # Seed from every *.md file already on disk, not just the ones whose
     # frontmatter parsed cleanly — a corrupt/hand-edited page is still a
-    # real file occupying its slug, and `_scan_existing_pages` skips adding
+    # real file occupying its slug, and `scan_wiki_pages` skips adding
     # those to `existing_pages`. Without this, a fresh `unique_slug()` call
     # for the same concept (now treated as "no existing page") could pick
     # the corrupt file's own slug and overwrite it on write.
