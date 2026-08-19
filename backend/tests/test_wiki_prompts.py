@@ -23,14 +23,64 @@ def test_build_wiki_page_prompt_mentions_edges_when_present():
     assert "disputes fine-tuning" in prompt
 
 
-def test_parse_wiki_page_response_extracts_synthesis():
+def test_build_wiki_page_prompt_mentions_aspect_splitting_option():
+    prompt = build_wiki_page_prompt(term="RAG", definition="def", citations=[], edges=[])
+    assert "aspects" in prompt.lower()
+
+
+def test_parse_wiki_page_response_extracts_synthesis_with_no_aspects():
     raw = '{"synthesis": "RAG grounds generation in retrieved passages."}'
-    assert parse_wiki_page_response(raw) == "RAG grounds generation in retrieved passages."
+    assert parse_wiki_page_response(raw) == {
+        "overview": "RAG grounds generation in retrieved passages.",
+        "aspects": [],
+        "warnings": [],
+    }
+
+
+def test_parse_wiki_page_response_extracts_aspects_when_present():
+    raw = (
+        '{"synthesis": "RAG overview.", "aspects": ['
+        '{"title": "Retrieval Strategies", "content": "Strategy prose."}, '
+        '{"title": "Evaluation", "content": "Evaluation prose."}'
+        "]}"
+    )
+    assert parse_wiki_page_response(raw) == {
+        "overview": "RAG overview.",
+        "aspects": [
+            {"title": "Retrieval Strategies", "content": "Strategy prose."},
+            {"title": "Evaluation", "content": "Evaluation prose."},
+        ],
+        "warnings": [],
+    }
+
+
+def test_parse_wiki_page_response_treats_null_aspects_as_empty():
+    raw = '{"synthesis": "text", "aspects": null}'
+    assert parse_wiki_page_response(raw) == {"overview": "text", "aspects": [], "warnings": []}
+
+
+def test_parse_wiki_page_response_drops_malformed_aspect_entry_with_warning():
+    raw = (
+        '{"synthesis": "text", "aspects": ['
+        '{"title": "Good", "content": "fine"}, '
+        '{"title": "Missing content"}'
+        "]}"
+    )
+    result = parse_wiki_page_response(raw)
+    assert result["overview"] == "text"
+    assert result["aspects"] == [{"title": "Good", "content": "fine"}]
+    assert len(result["warnings"]) == 1
+
+
+def test_parse_wiki_page_response_treats_non_list_aspects_as_empty_with_warning():
+    raw = '{"synthesis": "text", "aspects": "not a list"}'
+    result = parse_wiki_page_response(raw)
+    assert result == {"overview": "text", "aspects": [], "warnings": [result["warnings"][0]]}
 
 
 def test_parse_wiki_page_response_strips_markdown_fence():
     raw = '```json\n{"synthesis": "text"}\n```'
-    assert parse_wiki_page_response(raw) == "text"
+    assert parse_wiki_page_response(raw)["overview"] == "text"
 
 
 def test_parse_wiki_page_response_raises_on_malformed_json():
