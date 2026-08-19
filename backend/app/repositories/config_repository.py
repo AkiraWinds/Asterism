@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 CLI_PROVIDERS = {"claude", "codex"}
@@ -15,7 +15,9 @@ class ConfigError(ValueError):
 class AgentConfig:
     strategy: str
     provider: str
-    api_key: str | None = None
+    # repr=False so logging/printing an AgentConfig (e.g. `logger.info("%s", config)`)
+    # can never leak the key by accident (SANYI.md's credential-handling invariant).
+    api_key: str | None = field(default=None, repr=False)
 
 
 def load_config(data_root: Path) -> AgentConfig:

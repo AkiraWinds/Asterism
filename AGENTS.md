@@ -121,7 +121,7 @@ High-confidence dedup merges auto-apply; ambiguous ones (and anything classified
 
 - `sources.py` — CRUD, `/analyze`, `/chats` (list/create/delete conversations), `/chat` (SSE), `/highlights`, `/feedback` (+ `/feedback/{id}/promote` into the graph).
 - `graph.py` — `GET /graph`, review-queue list + resolve.
-- `wiki.py` — `POST /wiki/compile` (also invocable via `backend/scripts/wiki_compile.py` from cron/launchd — no in-process scheduler by design).
+- `wiki.py` — `POST /wiki/compile` (also invocable via `backend/scripts/wiki_compile.py` from cron/launchd — no in-process scheduler by design); `GET /wiki/pages/{concept_id}` and `GET /wiki/pages/by-slug/{slug}` to read a compiled page.
 - `agent.py` — `POST /agent/complete`, a thin pass-through to the provider abstraction.
 
 ---
@@ -130,7 +130,7 @@ High-confidence dedup merges auto-apply; ambiguous ones (and anything classified
 
 - `/` — sources list + create form (paste URL or text).
 - `/sources/[id]` — source detail: original content, analysis tabs, per-source chat with conversation switching, text-selection auto-attach as chat context.
-- `/graph` — concept graph view.
+- `/graph` — concept graph view, with a wiki-page panel alongside the graph for whichever concept is selected.
 
 There is no Dashboard, Feed, or Notebook yet — those are legacy-only features not yet ported into this frontend.
 

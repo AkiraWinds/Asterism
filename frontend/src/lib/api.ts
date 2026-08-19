@@ -339,6 +339,33 @@ export async function resolveReviewQueueEntry(
   if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to resolve review queue entry"));
 }
 
+export interface WikiPageAspect {
+  slug: string;
+  term: string;
+}
+
+export interface WikiPage {
+  slug: string;
+  term: string;
+  updated_at: string;
+  body: string;
+  aspects: WikiPageAspect[];
+}
+
+export async function getWikiPageByConceptId(conceptId: string): Promise<WikiPage | null> {
+  const res = await fetch(`${BACKEND_URL}/wiki/pages/${conceptId}`, { cache: "no-store" });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load wiki page"));
+  return res.json();
+}
+
+export async function getWikiPageBySlug(slug: string): Promise<WikiPage | null> {
+  const res = await fetch(`${BACKEND_URL}/wiki/pages/by-slug/${slug}`, { cache: "no-store" });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load wiki page"));
+  return res.json();
+}
+
 export async function getFeedback(sourceId: string): Promise<Feedback[]> {
   const res = await fetch(`${BACKEND_URL}/sources/${sourceId}/feedback`, { cache: "no-store" });
   if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load feedback"));

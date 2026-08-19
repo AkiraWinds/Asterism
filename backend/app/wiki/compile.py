@@ -78,7 +78,7 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
     existing_pages = _scan_existing_pages(wiki_dir)
     # Seed from every *.md file already on disk, not just the ones whose
     # frontmatter parsed cleanly — a corrupt/hand-edited page is still a
-    # real file occupying its slug, and `_scan_existing_pages` skips adding
+    # real file occupying its slug, and `scan_wiki_pages` skips adding
     # those to `existing_pages`. Without this, a fresh `unique_slug()` call
     # for the same concept (now treated as "no existing page") could pick
     # the corrupt file's own slug and overwrite it on write.
