@@ -1,6 +1,9 @@
 """Prompt assembly and response parsing for wiki page synthesis — turns one
 concept's linked highlight/source citations and edges into a grounded prose
-page. See docs/superpowers/specs/2026-07-31-wiki-compile-layer-design.md."""
+page, optionally split into an overview plus several aspect pages when the
+concept's material covers genuinely distinct enough sub-topics. See
+docs/superpowers/specs/2026-07-31-wiki-compile-layer-design.md and
+docs/superpowers/specs/2026-08-01-wiki-many-to-many-redesign-design.md."""
 
 import json
 import re
@@ -33,15 +36,43 @@ def build_wiki_page_prompt(term: str, definition: str, citations: list[dict], ed
     if edges:
         edge_lines = "\n".join(f"- {e['type']}: {e['summary']}" for e in edges)
         parts.append(f"## Relationships to other concepts\n\n{edge_lines}")
-    parts.append('Respond with JSON only: {"synthesis": "<the prose>"}')
+    parts.append(
+        "Decide whether this concept's material covers one cohesive idea, or genuinely "
+        "distinct enough aspects that they deserve separate pages (most concepts should "
+        "NOT be split — only split when the aspects would each stand alone as useful pages).\n\n"
+        "Respond with JSON only. If not splitting:\n"
+        '{"synthesis": "<the prose>", "aspects": null}\n\n'
+        "If splitting:\n"
+        '{"synthesis": "<overview prose introducing the aspects>", '
+        '"aspects": [{"title": "<short aspect title>", "content": "<aspect prose>"}, ...]}'
+    )
     return "\n\n".join(parts)
 
 
-def parse_wiki_page_response(raw: str) -> str:
+def parse_wiki_page_response(raw: str) -> dict:
+    """Returns {"overview": str, "aspects": list[{"title", "content"}], "warnings": list[str]}.
+    A malformed individual aspect entry (or a non-list "aspects" value) is
+    dropped with a warning rather than failing the whole response — the
+    overview synthesis is still usable on its own. A missing/unparsable
+    top-level response has no usable content at all, so that still raises."""
     try:
         parsed = json.loads(_strip_markdown_fence(raw))
     except json.JSONDecodeError as exc:
         raise ValueError(f"Malformed wiki page response: {exc}") from exc
     if not isinstance(parsed, dict) or "synthesis" not in parsed:
         raise ValueError(f"Wiki page response missing 'synthesis' key: {raw!r}")
-    return parsed["synthesis"]
+
+    raw_aspects = parsed.get("aspects") or []
+    warnings: list[str] = []
+    if not isinstance(raw_aspects, list):
+        warnings.append(f"'aspects' was not a list, ignoring: {raw_aspects!r}")
+        raw_aspects = []
+
+    aspects = []
+    for item in raw_aspects:
+        if isinstance(item, dict) and "title" in item and "content" in item:
+            aspects.append({"title": item["title"], "content": item["content"]})
+        else:
+            warnings.append(f"malformed aspect entry ignored: {item!r}")
+
+    return {"overview": parsed["synthesis"], "aspects": aspects, "warnings": warnings}

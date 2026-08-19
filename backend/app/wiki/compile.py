@@ -18,6 +18,7 @@ from app.wiki.prompts import build_wiki_page_prompt, parse_wiki_page_response
 from app.wiki.render import (
     extract_synthesis_body,
     parse_wiki_page_frontmatter,
+    render_aspect_page,
     render_index,
     render_log_entry,
     render_related_section,
@@ -25,7 +26,7 @@ from app.wiki.render import (
     render_wiki_page,
 )
 from app.wiki.selection import select_qualifying_concepts
-from app.wiki.slug import unique_slug
+from app.wiki.slug import aspect_slug, unique_slug
 from app.wiki.store_reader import get_concept_provenance, get_edges_for_concept, resolve_citations
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ def _scan_existing_pages(wiki_dir: Path) -> dict[str, dict]:
         except ValueError:  # json.JSONDecodeError is a ValueError subclass
             logger.warning("Skipping unparseable wiki page frontmatter: %s", path)
             continue
-        if frontmatter and "concept_id" in frontmatter:
+        if frontmatter and "concept_id" in frontmatter and "aspect_of" not in frontmatter:
             pages[frontmatter["concept_id"]] = {"slug": path.stem, "frontmatter": frontmatter}
     return pages
 
@@ -119,9 +120,28 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
 
         if unchanged:
             page_bodies[concept_id] = extract_synthesis_body(page_path.read_text())
+            # Aspect pages aren't independently hash-checked — staleness is
+            # decided once at the concept level (see the provenance-hash
+            # comparison above), so on an unchanged run we just re-read
+            # whichever aspect files the last run wrote, keyed by the
+            # overview's own recorded "aspects" slug list.
+            aspect_pages_meta: list[dict] = []
+            for existing_aspect_slug in existing["frontmatter"].get("aspects", []):
+                aspect_path = wiki_dir / f"{existing_aspect_slug}.md"
+                if not aspect_path.exists():
+                    continue
+                # Same invariant as `_scan_existing_pages`: a hand-edited/corrupt
+                # aspect page must not abort the whole compile run.
+                try:
+                    aspect_frontmatter = parse_wiki_page_frontmatter(aspect_path.read_text())
+                except ValueError:  # json.JSONDecodeError is a ValueError subclass
+                    aspect_frontmatter = None
+                aspect_term = aspect_frontmatter.get("term", existing_aspect_slug) if aspect_frontmatter else existing_aspect_slug
+                aspect_pages_meta.append({"term": aspect_term, "slug": existing_aspect_slug})
             page_meta.append({
                 "term": concept["term"], "slug": slug, "definition": concept["definition"],
                 "source_highlight_count": len(provenance), "updated_at": existing["frontmatter"]["updated_at"],
+                "aspect_pages": aspect_pages_meta,
             })
             continue
 
@@ -130,20 +150,69 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
 
         try:
             raw = llm_provider.complete(build_wiki_page_prompt(concept["term"], concept["definition"], citations, concept_edges))
-            body = parse_wiki_page_response(raw)
+            parsed_response = parse_wiki_page_response(raw)
         except (ValueError, ProviderError) as exc:
             logger.exception("Wiki compile failed for concept_id=%s", concept_id)
             errors.append({"concept_id": concept_id, "message": str(exc)})
             change_lines.append(f"- error: {concept['term']} — {exc}")
             continue
 
+        body = parsed_response["overview"]
+        for warning in parsed_response["warnings"]:
+            logger.warning("Wiki compile aspect warning for concept_id=%s: %s", concept_id, warning)
+
+        # Delete this concept's own previously-recorded aspect files before
+        # writing the new set — the LLM re-decides the split fresh on every
+        # regeneration (it's not a sticky decision), so the proposed aspects
+        # can differ from last run's. Using the overview's own recorded slug
+        # list (not a directory glob) means we only ever *consider* deleting
+        # files that were once associated with this concept, never another
+        # concept's page that happens to share a slug prefix. But a recorded
+        # slug name alone isn't proof of current ownership: if that aspect
+        # file was hand-deleted and a brand-new, unrelated concept later got
+        # handed that exact freed slug by unique_slug()/aspect_slug(), an
+        # unconditional discard()/unlink() here would silently reclaim or
+        # destroy the new concept's real page. So re-verify ownership via the
+        # file's own frontmatter (`aspect_of`/`concept_id`) before touching
+        # it, and only ever free the slug when we can actually confirm it's
+        # still ours or it's already gone.
+        if existing is not None:
+            for stale_aspect_slug in existing["frontmatter"].get("aspects", []):
+                stale_path = wiki_dir / f"{stale_aspect_slug}.md"
+                if not stale_path.exists():
+                    continue  # already gone; if the slug is taken now it belongs to someone else, not ours to free
+                try:
+                    stale_frontmatter = parse_wiki_page_frontmatter(stale_path.read_text()) or {}
+                except ValueError:  # json.JSONDecodeError is a ValueError subclass
+                    continue  # unparseable — leave it alone, same tolerance as elsewhere in this module
+                if stale_frontmatter.get("aspect_of") != slug or stale_frontmatter.get("concept_id") != concept_id:
+                    continue  # ownership changed since we last recorded it — never delete another concept's page
+                stale_path.unlink()
+                taken_slugs.discard(stale_aspect_slug)
+
+        source_ids = sorted({p["source_id"] for p in provenance})
         updated_at = _now_iso()
+
+        aspect_slugs: list[str] = []
+        aspect_pages_meta: list[dict] = []
+        for aspect in parsed_response["aspects"]:
+            this_aspect_slug = aspect_slug(slug, aspect["title"], taken_slugs)
+            taken_slugs.add(this_aspect_slug)
+            aspect_page_text = render_aspect_page(
+                concept_id=concept_id, term=aspect["title"], aspect_of=slug,
+                updated_at=updated_at, source_ids=source_ids, body=aspect["content"],
+            )
+            (wiki_dir / f"{this_aspect_slug}.md").write_text(aspect_page_text)
+            aspect_slugs.append(this_aspect_slug)
+            aspect_pages_meta.append({"term": aspect["title"], "slug": this_aspect_slug})
+
         page_text = render_wiki_page(
             concept_id=concept_id, term=concept["term"], updated_at=updated_at,
             source_highlight_count=len(provenance), source_provenance_hash=current_hash,
-            source_ids=sorted({p["source_id"] for p in provenance}), body=body,
+            source_ids=source_ids, body=body,
             related_section=render_related_section(concept_edges, concept_terms, slug_by_concept_id, concept_id),
             sources_section=render_sources_section(citations),
+            aspects=aspect_slugs or None,
         )
         page_path.write_text(page_text)
 
@@ -151,15 +220,21 @@ def run_compile(data_root: Path, llm_provider: Provider) -> dict:
         page_meta.append({
             "term": concept["term"], "slug": slug, "definition": concept["definition"],
             "source_highlight_count": len(provenance), "updated_at": updated_at,
+            "aspect_pages": aspect_pages_meta,
         })
 
+        split_suffix = (
+            f" (split into {1 + len(aspect_slugs)} pages: overview + {len(aspect_slugs)} "
+            f"aspect{'s' if len(aspect_slugs) != 1 else ''})"
+            if aspect_slugs else ""
+        )
         if is_new:
             pages_new += 1
-            change_lines.append(f"- new: {concept['term']}")
+            change_lines.append(f"- new: {concept['term']}{split_suffix}")
         else:
             old_count = existing["frontmatter"].get("source_highlight_count", "?")
             pages_updated += 1
-            change_lines.append(f"- updated: {concept['term']} ({old_count}→{len(provenance)} highlights)")
+            change_lines.append(f"- updated: {concept['term']} ({old_count}→{len(provenance)} highlights){split_suffix}")
 
     # Only concepts with an actually-written page belong in orphan
     # detection: `slug_by_concept_id` is assigned before the LLM call, so it
