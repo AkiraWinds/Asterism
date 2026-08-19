@@ -22,7 +22,17 @@ export default function GraphPage() {
       </Link>
       <h1 className="mt-4 font-heading text-3xl font-bold tracking-tight text-foreground">Concept Graph</h1>
       <div className="mt-6">
-        <ReviewQueuePanel onResolved={() => setGraphVersion((v) => v + 1)} />
+        <ReviewQueuePanel
+          onResolved={() => {
+            setGraphVersion((v) => v + 1);
+            // A resolved merge may have removed the currently-selected
+            // concept from graph.db entirely — drop the selection so
+            // WikiPagePanel doesn't keep showing a concept that no longer
+            // exists (its fetch effect keys on node identity, not on
+            // graphVersion, so it wouldn't otherwise know to refetch).
+            setSelectedNode(null);
+          }}
+        />
       </div>
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-5">
         <div className="lg:col-span-2">
