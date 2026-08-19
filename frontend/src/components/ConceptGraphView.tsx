@@ -52,7 +52,7 @@ export function ConceptGraphView({
     : null;
 
   return (
-    <div ref={containerRef} className="relative h-[70vh] w-full overflow-hidden rounded-lg border border-border">
+    <div ref={containerRef} className="relative h-[560px] w-full overflow-hidden rounded-lg border border-border">
       {error && (
         <p className="p-4 text-sm text-destructive">Couldn&apos;t load the concept graph: {error}</p>
       )}
