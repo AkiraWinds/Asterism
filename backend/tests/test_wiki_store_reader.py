@@ -150,3 +150,91 @@ def test_scan_wiki_pages_skips_aspect_pages(tmp_path: Path):
 
     assert list(pages.keys()) == ["c_1"]
     assert pages["c_1"]["slug"] == "rag"
+
+
+# get_wiki_page_by_concept_id and get_wiki_page_by_slug tests
+from app.wiki.store_reader import get_wiki_page_by_concept_id, get_wiki_page_by_slug
+
+
+def _write_overview_page(wiki_dir: Path, slug: str, concept_id: str, term: str, aspects: list[str] | None = None) -> None:
+    aspects_line = f'\naspects: {json.dumps(aspects)}' if aspects else ""
+    (wiki_dir / f"{slug}.md").write_text(
+        f'---\nconcept_id: {json.dumps(concept_id)}\nterm: {json.dumps(term)}\n'
+        f'updated_at: "2026-08-01T00:00:00Z"\nsource_highlight_count: 3\n'
+        f'source_provenance_hash: "abc"\nsource_ids: []{aspects_line}\n---\n\nOverview body.\n\n'
+        f'## Related concepts\n\nSome related text.\n'
+    )
+
+
+def _write_aspect_page(wiki_dir: Path, slug: str, concept_id: str, term: str, aspect_of: str) -> None:
+    (wiki_dir / f"{slug}.md").write_text(
+        f'---\nconcept_id: {json.dumps(concept_id)}\nterm: {json.dumps(term)}\n'
+        f'aspect_of: {json.dumps(aspect_of)}\nupdated_at: "2026-08-01T00:00:00Z"\n'
+        f'source_ids: []\n---\n\nAspect body.\n'
+    )
+
+
+def test_get_wiki_page_by_concept_id_returns_body_and_no_aspects(tmp_path: Path):
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+    _write_overview_page(wiki_dir, "rag", "c_1", "RAG")
+
+    page = get_wiki_page_by_concept_id(wiki_dir, "c_1")
+
+    assert page["slug"] == "rag"
+    assert page["term"] == "RAG"
+    assert page["updated_at"] == "2026-08-01T00:00:00Z"
+    assert "Overview body." in page["body"]
+    assert "## Related concepts" in page["body"]  # full body, not synthesis-only
+    assert page["aspects"] == []
+
+
+def test_get_wiki_page_by_concept_id_returns_none_when_not_found(tmp_path: Path):
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+
+    assert get_wiki_page_by_concept_id(wiki_dir, "c_missing") is None
+
+
+def test_get_wiki_page_by_concept_id_resolves_aspect_terms(tmp_path: Path):
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+    _write_overview_page(wiki_dir, "rag", "c_1", "RAG", aspects=["rag-evaluation"])
+    _write_aspect_page(wiki_dir, "rag-evaluation", "c_1", "Evaluation", "rag")
+
+    page = get_wiki_page_by_concept_id(wiki_dir, "c_1")
+
+    assert page["aspects"] == [{"slug": "rag-evaluation", "term": "Evaluation"}]
+
+
+def test_get_wiki_page_by_concept_id_skips_aspect_slug_with_missing_file(tmp_path: Path):
+    # The overview's recorded aspects list can point at a file that's since
+    # been deleted (e.g. a hand-edit) — don't crash, just omit it.
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+    _write_overview_page(wiki_dir, "rag", "c_1", "RAG", aspects=["rag-missing"])
+
+    page = get_wiki_page_by_concept_id(wiki_dir, "c_1")
+
+    assert page["aspects"] == []
+
+
+def test_get_wiki_page_by_slug_returns_body(tmp_path: Path):
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+    _write_aspect_page(wiki_dir, "rag-evaluation", "c_1", "Evaluation", "rag")
+
+    page = get_wiki_page_by_slug(wiki_dir, "rag-evaluation")
+
+    assert page == {
+        "slug": "rag-evaluation", "term": "Evaluation",
+        "updated_at": "2026-08-01T00:00:00Z", "body": "Aspect body.\n",
+        "aspects": [],
+    }
+
+
+def test_get_wiki_page_by_slug_returns_none_when_file_missing(tmp_path: Path):
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+
+    assert get_wiki_page_by_slug(wiki_dir, "nonexistent") is None

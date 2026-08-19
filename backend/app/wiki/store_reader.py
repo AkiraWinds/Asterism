@@ -11,7 +11,7 @@ from pathlib import Path
 
 from app.graph_store.store import list_edges
 from app.repositories.source_repository import get_source, read_highlights
-from app.wiki.render import parse_wiki_page_frontmatter
+from app.wiki.render import extract_body, parse_wiki_page_frontmatter
 
 logger = logging.getLogger(__name__)
 
@@ -120,3 +120,68 @@ def resolve_citations(data_root: Path, provenance: list[dict]) -> list[dict]:
         label = record.title if record else source_id
         citations.append({"source_id": source_id, "label": label, "quote": None})
     return citations
+
+
+def _resolve_aspects(wiki_dir: Path, aspect_slugs: list[str]) -> list[dict]:
+    """slug -> {"slug", "term"} for each aspect slug recorded in an overview
+    page's frontmatter. Tolerates a missing or unparseable aspect file (skips
+    it) rather than failing the whole page lookup — same tolerance
+    scan_wiki_pages applies to overview pages."""
+    resolved = []
+    for slug in aspect_slugs:
+        path = wiki_dir / f"{slug}.md"
+        if not path.exists():
+            continue
+        try:
+            frontmatter = parse_wiki_page_frontmatter(path.read_text())
+        except ValueError:
+            continue
+        resolved.append({"slug": slug, "term": (frontmatter or {}).get("term", slug)})
+    return resolved
+
+
+def get_wiki_page_by_concept_id(wiki_dir: Path, concept_id: str) -> dict | None:
+    """Read-only lookup for the frontend's wiki panel: the compiled overview
+    page for one concept, plus its aspect pages' {slug, term} (empty list on
+    any page compiled before PR #13's aspect-split feature, or on a concept
+    that hasn't been split). Returns None if the concept has no wiki page
+    yet — the wiki compile layer only generates one once
+    MIN_PROVENANCE_COUNT is met (see app.wiki.selection), so this is an
+    expected, common case, not an error."""
+    pages = scan_wiki_pages(wiki_dir)
+    match = pages.get(concept_id)
+    if match is None:
+        return None
+    frontmatter = match["frontmatter"]
+    body = extract_body((wiki_dir / f"{match['slug']}.md").read_text())
+    return {
+        "slug": match["slug"],
+        "term": frontmatter.get("term", concept_id),
+        "updated_at": frontmatter.get("updated_at", ""),
+        "body": body,
+        "aspects": _resolve_aspects(wiki_dir, frontmatter.get("aspects", [])),
+    }
+
+
+def get_wiki_page_by_slug(wiki_dir: Path, slug: str) -> dict | None:
+    """Read-only lookup for one wiki page file by its filename slug, used to
+    fetch an *aspect* sub-page's body — aspect pages share their parent's
+    concept_id (see scan_wiki_pages' exclusion of them), so they can't be
+    looked up unambiguously by concept_id and need this slug-keyed path
+    instead. Works for overview pages too (same underlying file), but the
+    frontend only ever calls this for aspects."""
+    path = wiki_dir / f"{slug}.md"
+    if not path.exists():
+        return None
+    text = path.read_text()
+    try:
+        frontmatter = parse_wiki_page_frontmatter(text) or {}
+    except ValueError:
+        return None
+    return {
+        "slug": slug,
+        "term": frontmatter.get("term", slug),
+        "updated_at": frontmatter.get("updated_at", ""),
+        "body": extract_body(text),
+        "aspects": [],
+    }

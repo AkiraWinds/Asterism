@@ -7,7 +7,7 @@ import json
 
 _FRONTMATTER_KEYS = (
     "concept_id", "term", "updated_at", "source_highlight_count",
-    "source_provenance_hash", "source_ids",
+    "source_provenance_hash", "source_ids", "aspects", "aspect_of",
 )
 
 
