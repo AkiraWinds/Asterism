@@ -44,6 +44,7 @@ from app.repositories.source_repository import (
     list_conversations,
     list_sources,
     mark_feedback_promoted,
+    mark_source_read,
     read_analysis,
     read_conversation,
     read_feedback,
@@ -59,6 +60,7 @@ from app.schemas.chat import ChatRequest, ChatTurn, Conversation, ConversationSu
 from app.schemas.feedback import FeedbackEntry, FeedbackHistory, FeedbackRequest
 from app.schemas.graph import HighlightProcessResult
 from app.schemas.highlight import Highlight, HighlightCreateRequest, HighlightHistory, HighlightUpdateRequest
+from app.schemas.reading_state import ReadingState
 from app.schemas.source import (
     SourceCreateRequest,
     SourceDetailResponse,
@@ -85,20 +87,26 @@ def create_source_endpoint(payload: SourceCreateRequest):
     data_root = get_data_root()
 
     if payload.url:
-        try:
-            html = fetch_url(payload.url)
-        except LoginRequiredError as exc:
-            logger.warning("Ingestion login_required url=%s", payload.url)
-            return _error_response(400, "login_required", str(exc))
-        except FetchBlockedError as exc:
-            logger.warning("Ingestion blocked url=%s", payload.url)
-            return _error_response(400, "blocked", str(exc))
-        except FetchTimeoutError as exc:
-            logger.warning("Ingestion fetch timeout url=%s", payload.url)
-            return _error_response(504, "timeout", str(exc))
-        except FetchError as exc:
-            logger.warning("Ingestion fetch error url=%s type=%s", payload.url, type(exc).__name__)
-            return _error_response(502, "error", str(exc))
+        if payload.html:
+            # Pre-fetched by a caller that already has the rendered page in hand (e.g. the
+            # browser extension), so it can bypass server-side fetch entirely — this is how
+            # login-walled/JS-rendered pages get captured without needing cookie replay.
+            html = payload.html
+        else:
+            try:
+                html = fetch_url(payload.url)
+            except LoginRequiredError as exc:
+                logger.warning("Ingestion login_required url=%s", payload.url)
+                return _error_response(400, "login_required", str(exc))
+            except FetchBlockedError as exc:
+                logger.warning("Ingestion blocked url=%s", payload.url)
+                return _error_response(400, "blocked", str(exc))
+            except FetchTimeoutError as exc:
+                logger.warning("Ingestion fetch timeout url=%s", payload.url)
+                return _error_response(504, "timeout", str(exc))
+            except FetchError as exc:
+                logger.warning("Ingestion fetch error url=%s type=%s", payload.url, type(exc).__name__)
+                return _error_response(502, "error", str(exc))
 
         title = extract_title(html, payload.url)
 
@@ -136,7 +144,8 @@ def create_source_endpoint(payload: SourceCreateRequest):
 
     record = create_source(data_root, title=payload.title, content=payload.content)
     return SourceDetailResponse(
-        id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=None
+        id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=None,
+        read_at=None,
     )
 
 
@@ -144,7 +153,7 @@ def create_source_endpoint(payload: SourceCreateRequest):
 def list_sources_endpoint() -> list[SourceSummaryResponse]:
     records = list_sources(get_data_root())
     return [
-        SourceSummaryResponse(id=r.id, title=r.title, created_at=r.created_at) for r in records
+        SourceSummaryResponse(id=r.id, title=r.title, created_at=r.created_at, read_at=r.read_at) for r in records
     ]
 
 
@@ -159,8 +168,17 @@ def get_source_endpoint(source_id: str) -> SourceDetailResponse:
     # AnalysisResult with the *_error fields set accordingly in either case.
     analysis = read_analysis(data_root, source_id)
     return SourceDetailResponse(
-        id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=analysis
+        id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=analysis,
+        read_at=record.read_at,
     )
+
+
+@router.post("/{source_id}/read", response_model=ReadingState)
+def mark_source_read_endpoint(source_id: str) -> ReadingState:
+    data_root = get_data_root()
+    if get_source(data_root, source_id) is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return mark_source_read(data_root, source_id)
 
 
 @router.delete("/{source_id}", status_code=204)

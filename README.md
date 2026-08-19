@@ -48,7 +48,7 @@ Asterism is a local-first personal knowledge base with an agent inside — but t
         Wiki (browsable markdown pages)
 ```
 
-Everything in [What ships today](#what-ships-today) is what actually exists right now, built on the current backend/frontend stack. Ahead: copilot retrieval across the whole library, a Dashboard/Feed, and a rewritten browser extension.
+Everything in [What ships today](#what-ships-today) is what actually exists right now, built on the current backend/frontend stack. Ahead: copilot retrieval across the whole library and a Dashboard/Feed.
 
 ## What ships today
 
@@ -74,7 +74,62 @@ Per-source streaming chat (SSE), with multiple named conversations per source an
 
 ### Radar — proactive content discovery
 
-A daily-refreshable feed of RSS-sourced recommendations, ranked by relevance (concept-graph embedding similarity + LLM judgment against your saved boost topics) and quality (judged from full article text, not a hardcoded per-source trust score) — kept as two separate scores, never averaged. One click adds an item straight into your library; dismiss drops it. Feed sources and boost topics are fully user-editable (add/delete), seeded with a couple of defaults on first run. Not scheduled automatically yet — refresh from the `/radar` page or `backend/scripts/radar_refresh.py` (cron/launchd), matching the wiki-compile pattern.
+A daily-refreshable feed of RSS-sourced recommendations, ranked by relevance (concept-graph embedding similarity + LLM judgment against your saved boost topics) and quality (judged from full article text, not a hardcoded per-source trust score) — kept as two separate scores, never averaged. One click adds an item straight into your library; dismiss drops it. Feed sources and boost topics are fully user-editable (add/delete), seeded with a couple of defaults on first run.
+
+Refresh manually from the `/radar` page, or schedule it via launchd (macOS):
+
+```bash
+cp backend/scripts/com.asterism.radar-refresh.plist.template ~/Library/LaunchAgents/com.asterism.radar-refresh.plist
+# Edit the copy: replace __PYTHON_BIN__ (e.g. `which python3` inside your uv venv),
+# __REPO_ROOT__, __ASTERISM_DATA_ROOT__, and __HOME__ with your actual paths.
+launchctl load ~/Library/LaunchAgents/com.asterism.radar-refresh.plist
+```
+
+Runs once daily (default 08:00, edit `StartCalendarInterval` in the plist to change it). Unlike cron, launchd fires a missed run on next wake if the machine was asleep at the scheduled time. Output/errors land in `~/Library/Logs/asterism-radar-refresh.log`. The same template pattern can be copied for `backend/scripts/wiki_compile.py`.
+
+### Browser extension
+
+Captures the current tab's rendered page into your library — useful for content behind a login wall (e.g. a paid Medium article) that server-side fetching can't reach. Load it as an unpacked extension from the `browser-extension/` directory.
+
+### Persistent local services (optional)
+
+Run backend and frontend as always-on background services instead of starting them by hand each session. Both restart automatically if they crash and start again at login. This is still entirely local — both services are configured to bind `127.0.0.1` only (the backend via `--host`, the frontend via the `-H` flag below, since `next start` otherwise defaults to `0.0.0.0`), so this setup stays exactly as locked-down as running them by hand.
+
+If you've been running the backend/frontend by hand (`uv run uvicorn ... --reload` / `npm run dev`), stop those processes first — they hold ports 8000/3000, and loading these services while those ports are occupied means launchd fails to bind and crash-loops instead.
+
+```bash
+# One-time: build the frontend for production (next start serves this build,
+# it doesn't build on the fly — rerun this after any frontend code change).
+cd frontend && npm run build && cd ..
+
+cp backend/scripts/com.asterism.backend.plist.template ~/Library/LaunchAgents/com.asterism.backend.plist
+cp backend/scripts/com.asterism.frontend.plist.template ~/Library/LaunchAgents/com.asterism.frontend.plist
+# Edit both copies: replace __UV_BIN__ (`which uv`), __NPM_BIN__ (`which npm`),
+# __REPO_ROOT__, __ASTERISM_DATA_ROOT__, __HOME__, and __PATH__ with your actual
+# paths. launchd does not source your shell profile, so each service only gets
+# the minimal default PATH (/usr/bin:/bin:/usr/sbin:/sbin) unless you set one
+# explicitly — figure out a working value with `echo $PATH` in your normal
+# terminal, or at minimum include the directories from `dirname $(which node)`,
+# `dirname $(which npm)`, and, if you're on a CLI provider (`cli_claude`/
+# `cli_codex`), `dirname $(which claude)` (or `codex`) so the backend can find
+# it via shutil.which().
+
+launchctl load ~/Library/LaunchAgents/com.asterism.backend.plist
+launchctl load ~/Library/LaunchAgents/com.asterism.frontend.plist
+
+# Verify both actually started (not just that launchd accepted the plist):
+launchctl list com.asterism.backend
+launchctl list com.asterism.frontend
+# A non-zero/non-dash exit status in either output means it's crash-looping —
+# check the logs below. Then confirm the backend answers:
+curl -sf http://localhost:8000/sources
+```
+
+Backend is then at `http://localhost:8000`, frontend at `http://localhost:3000`, same as running them manually. Logs land in `~/Library/Logs/asterism-backend.log` and `~/Library/Logs/asterism-frontend.log`.
+
+To stop: `launchctl unload ~/Library/LaunchAgents/com.asterism.backend.plist` (same for frontend). To pick up a code change: `launchctl unload` then `launchctl load` again (frontend also needs `npm run build` rerun first).
+
+If your `config.json` uses a CLI provider (`cli_claude`/`cli_codex`), sign in to that CLI at least once in a regular terminal first — its session is stored on disk, and the backend service running under launchd reads the same session, but can't create one interactively.
 
 ## Get started
 
@@ -116,6 +171,17 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+**Browser extension (optional)**
+
+Captures the current tab's rendered page into your library — useful for content behind a login wall (e.g. a paid Medium article) that server-side fetching can't reach.
+
+1. Start the backend (`http://localhost:8000` by default).
+2. In Chrome, go to `chrome://extensions`, enable Developer Mode.
+3. Click "Load unpacked" and select the `browser-extension/` directory.
+4. Click the extension icon on any page and hit "Save this page". If your backend runs somewhere other than `http://localhost:8000`, set it in the extension's Options page first.
+
+Captured pages go through the same content-extraction pipeline as any other source, which means the page's raw HTML can be sent to your configured AI provider (Claude/OpenAI/etc.) if trafilatura's local extraction comes up short — worth knowing since this extension is most useful on exactly the pages (JS-heavy, logged-in) where that fallback is most likely to trigger.
 
 ## Architecture
 

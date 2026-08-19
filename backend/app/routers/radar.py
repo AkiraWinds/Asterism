@@ -16,6 +16,7 @@ from app.providers.base import ProviderError
 from app.providers.factory import build_provider
 from app.radar.pipeline import refresh_radar
 from app.radar_store.store import (
+    claim_radar_item,
     delete_boost_topic,
     delete_feed_source,
     get_boost_topic,
@@ -28,6 +29,7 @@ from app.radar_store.store import (
     list_feed_sources,
     list_new_radar_items,
     radar_db_path,
+    release_radar_item,
     update_feed_source,
     update_radar_item_status,
 )
@@ -153,6 +155,12 @@ def post_add_item_endpoint(item_id: str):
     if item is None:
         raise HTTPException(status_code=404, detail="Radar item not found")
 
+    if not claim_radar_item(db_path, item_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Radar item is already being added, has been added, or is no longer available",
+        )
+
     data_root = get_data_root()
     try:
         html = fetch_url(item["url"])
@@ -160,11 +168,22 @@ def post_add_item_endpoint(item_id: str):
         content = extract_content(html, item["url"], data_root)
         record = create_source_from_url(data_root, item["url"], title, html, content)
     except (FetchError, ConfigError, ProviderError, OSError) as exc:
-        # Not the full structured-error mapping sources.py's create_source_endpoint
-        # has (deferred to the frontend follow-up plan) — one combined 502 is
-        # proportionate for this reuse endpoint. update_radar_item_status is never
-        # reached here, so the item stays 'new' and safely retryable.
+        # Claim succeeded but the add itself failed — roll back to 'new' so
+        # the item is still visible in GET /radar and safely retryable,
+        # instead of being stuck in 'adding' forever. Use release_radar_item
+        # (conditional on status still being 'adding') rather than an
+        # unconditional update, so a concurrent dismiss that landed while
+        # this add was in flight isn't resurrected back to 'new'.
+        release_radar_item(db_path, item_id)
         raise HTTPException(status_code=502, detail=f"Failed to add item: {exc}")
+    except Exception:
+        # Any other failure (unexpected parsing/provider error not covered by the
+        # 502 mapping above) must still roll the claim back to 'new' — otherwise
+        # the item is permanently stuck in 'adding': un-retryable and invisible
+        # to GET /radar, which only lists status='new'. Same conditional
+        # rollback as above.
+        release_radar_item(db_path, item_id)
+        raise
 
     update_radar_item_status(db_path, item_id, status="added", added_source_id=record.id)
     return {"id": record.id, "title": record.title}

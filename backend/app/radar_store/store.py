@@ -182,6 +182,7 @@ def delete_boost_topic(db_path: Path, topic_id: str) -> None:
 def insert_radar_item(
     db_path: Path, *, item_id: str, source_id: str, url: str, title: str, summary: str,
     published_at: str | None, relevance_score: float, quality_score: float, reasoning: str, created_at: str,
+    status: str = "new",
 ) -> bool:
     """Insert a radar item. Returns False (no-op) if url already exists — UNIQUE constraint is the dedup-across-runs mechanism."""
     try:
@@ -189,8 +190,8 @@ def insert_radar_item(
             conn.execute(
                 "INSERT INTO radar_items "
                 "(id, source_id, url, title, summary, published_at, relevance_score, quality_score, reasoning, status, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)",
-                (item_id, source_id, url, title, summary, published_at, relevance_score, quality_score, reasoning, created_at),
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (item_id, source_id, url, title, summary, published_at, relevance_score, quality_score, reasoning, status, created_at),
             )
             conn.commit()
         return True
@@ -225,6 +226,34 @@ def update_radar_item_status(db_path: Path, item_id: str, *, status: str, added_
             "UPDATE radar_items SET status = ?, added_source_id = ? WHERE id = ?",
             (status, added_source_id, item_id),
         )
+        conn.commit()
+
+
+def claim_radar_item(db_path: Path, item_id: str) -> bool:
+    """Atomically transition a radar item from 'new' to 'adding'. Returns
+    True iff this call won the claim (exactly one row updated) — False means
+    the item doesn't exist or is already adding/added/dismissed/rejected.
+    This is the concurrency guard for POST /radar/items/{id}/add: two
+    simultaneous requests for the same item_id can both read status='new',
+    but only one UPDATE ... WHERE status = 'new' can actually match a row."""
+    with _connect(db_path) as conn:
+        cursor = conn.execute(
+            "UPDATE radar_items SET status = 'adding' WHERE id = ? AND status = 'new'", (item_id,)
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+
+
+def release_radar_item(db_path: Path, item_id: str) -> None:
+    """Roll a claimed-but-failed item back to 'new', but only if it's still
+    'adding'. Used to clean up after a failed POST /radar/items/{id}/add.
+    Conditioning on status = 'adding' (rather than an unconditional SET, like
+    update_radar_item_status) means a concurrent dismiss that landed while
+    the add was in flight is not clobbered: if the item is already
+    'dismissed' by the time this runs, this is a no-op. No need to check
+    rowcount — this is fire-and-forget cleanup, not a claim."""
+    with _connect(db_path) as conn:
+        conn.execute("UPDATE radar_items SET status = 'new' WHERE id = ? AND status = 'adding'", (item_id,))
         conn.commit()
 
 

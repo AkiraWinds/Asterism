@@ -151,3 +151,107 @@ def test_add_item_returns_502_on_fetch_error(tmp_path: Path, monkeypatch):
     # Item must remain 'new' and safely retryable, not corrupted.
     ids = [i["id"] for i in client.get("/radar").json()["items"]]
     assert ids == ["i1"]
+
+
+def test_add_item_returns_409_if_already_claimed(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    _write_config(tmp_path)
+    db_path = radar_db_path(tmp_path)
+    init_db(db_path)
+    insert_radar_item(
+        db_path, item_id="i1", source_id="seed_0", url="https://example.com/a", title="A", summary="s",
+        published_at=None, relevance_score=0.8, quality_score=0.5, reasoning="r",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    from app.radar_store.store import claim_radar_item
+
+    # Simulate a first in-flight request already having claimed the item.
+    assert claim_radar_item(db_path, "i1") is True
+
+    response = client.post("/radar/items/i1/add")
+
+    assert response.status_code == 409
+
+
+def test_add_item_rolls_back_to_new_on_fetch_failure(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    _write_config(tmp_path)
+    db_path = radar_db_path(tmp_path)
+    init_db(db_path)
+    insert_radar_item(
+        db_path, item_id="i1", source_id="seed_0", url="https://example.com/a", title="A", summary="s",
+        published_at=None, relevance_score=0.8, quality_score=0.5, reasoning="r",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    from app.ingestion.fetcher import FetchError
+
+    def _raise_fetch_error(url):
+        raise FetchError("boom")
+
+    monkeypatch.setattr("app.routers.radar.fetch_url", _raise_fetch_error)
+
+    response = client.post("/radar/items/i1/add")
+
+    assert response.status_code == 502
+
+    from app.radar_store.store import get_radar_item
+
+    # Must roll back to 'new', not get stuck in 'adding' forever.
+    assert get_radar_item(db_path, "i1")["status"] == "new"
+
+
+def test_add_item_rolls_back_to_new_on_unmapped_exception(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    _write_config(tmp_path)
+    db_path = radar_db_path(tmp_path)
+    init_db(db_path)
+    insert_radar_item(
+        db_path, item_id="i1", source_id="seed_0", url="https://example.com/a", title="A", summary="s",
+        published_at=None, relevance_score=0.8, quality_score=0.5, reasoning="r",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    def _raise_unmapped_error(url):
+        raise ValueError("unexpected parsing failure")
+
+    monkeypatch.setattr("app.routers.radar.fetch_url", _raise_unmapped_error)
+
+    try:
+        client.post("/radar/items/i1/add")
+    except ValueError:
+        pass  # TestClient re-raises unhandled exceptions by default; that's fine here.
+
+    from app.radar_store.store import get_radar_item
+
+    # Even an exception type outside the mapped (FetchError, ConfigError,
+    # ProviderError, OSError) tuple must not leave the item stuck in 'adding'.
+    assert get_radar_item(db_path, "i1")["status"] == "new"
+
+
+def test_release_radar_item_does_not_resurrect_concurrent_dismiss(tmp_path: Path):
+    # Regression test for a race where add's rollback-to-'new' on failure
+    # could clobber a dismiss that landed concurrently while the item was
+    # claimed (status='adding'). release_radar_item's conditional UPDATE
+    # (WHERE status = 'adding') must be a no-op once the item has moved on
+    # to 'dismissed'.
+    db_path = radar_db_path(tmp_path)
+    init_db(db_path)
+    insert_radar_item(
+        db_path, item_id="i1", source_id="seed_0", url="https://example.com/a", title="A", summary="s",
+        published_at=None, relevance_score=0.8, quality_score=0.5, reasoning="r",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    from app.radar_store.store import claim_radar_item, get_radar_item, release_radar_item, update_radar_item_status
+
+    # Simulate an in-flight add having claimed the item.
+    assert claim_radar_item(db_path, "i1") is True
+    # Simulate a concurrent dismiss request landing while the add is in flight.
+    update_radar_item_status(db_path, "i1", status="dismissed")
+    # The add now fails and tries to roll back its claim.
+    release_radar_item(db_path, "i1")
+
+    # Must still be 'dismissed', not resurrected to 'new'.
+    assert get_radar_item(db_path, "i1")["status"] == "dismissed"

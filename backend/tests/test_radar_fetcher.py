@@ -54,14 +54,44 @@ def test_fetch_feed_items_raises_on_unparseable_content(monkeypatch):
         fetch_feed_items("https://example.com/rss.xml")
 
 
-def test_fetch_feed_items_does_not_let_feedparser_fetch_a_url_from_body(monkeypatch):
-    # A malicious/misconfigured feed server could return a body that happens to
-    # BE a URL (e.g. targeting cloud metadata endpoints). feedparser.parse()
-    # would fetch that URL itself with zero SSRF protection if given a raw str,
-    # bypassing fetch_url's guard entirely. Passing io.BytesIO forces feedparser
-    # down its "already have data" path instead, so this must return no entries
-    # (it's not valid feed XML) rather than silently fetching the URL-as-body.
-    monkeypatch.setattr("app.radar.fetcher.fetch_url", lambda url: "http://169.254.169.254/latest/meta-data/")
+def test_fetch_feed_items_wraps_body_in_bytesio_before_parsing(monkeypatch):
+    # feedparser.parse() treats a raw str argument as a URL-or-filename BEFORE
+    # treating it as feed data — if fetch_url's body happened to look like a
+    # URL (e.g. an SSRF-targeting cloud metadata address), passing it straight
+    # through would let feedparser fetch THAT itself with zero SSRF
+    # protection. The fix wraps the body in io.BytesIO so feedparser takes its
+    # "already have data" path instead. Assert directly on what feedparser.parse
+    # is called with, rather than on end-to-end behavior — a prior version of
+    # this test asserted only that FeedFetchError was raised, which happens to
+    # be true whether or not the BytesIO wrap is present (in a network-sandboxed
+    # test run, feedparser trying to fetch the URL itself also fails and also
+    # produces a bozo/no-entries result), so it never actually caught a
+    # regression.
+    monkeypatch.setattr(
+        "app.radar.fetcher.fetch_url", lambda url: "http://169.254.169.254/latest/meta-data/"
+    )
+
+    captured = {}
+
+    def _fake_parse(data):
+        captured["data"] = data
+        captured["is_str"] = isinstance(data, str)
+        # Return something with no usable entries, same as the real parse
+        # result for this non-XML input, so fetch_feed_items still raises.
+        class _Result:
+            bozo = True
+            bozo_exception = Exception("not valid feed XML")
+            entries = []
+
+        return _Result()
+
+    monkeypatch.setattr("app.radar.fetcher.feedparser.parse", _fake_parse)
 
     with pytest.raises(FeedFetchError):
         fetch_feed_items("https://example.com/rss.xml")
+
+    # The actual assertion that discriminates the fix: feedparser.parse must
+    # never be called with a raw str (which it would treat as a URL/filename
+    # to fetch itself) — it must be called with a file-like object instead.
+    assert captured["is_str"] is False
+    assert hasattr(captured["data"], "read")

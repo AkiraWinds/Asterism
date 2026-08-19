@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 16px; max-width: 400px; }
+    label { display: block; margin-bottom: 4px; font-size: 13px; }
+    input { width: 100%; padding: 6px; box-sizing: border-box; }
+    button { margin-top: 10px; padding: 6px 12px; cursor: pointer; }
+    #status { margin-top: 8px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <label for="backendUrl">Asterism backend URL</label>
+  <input id="backendUrl" type="text" placeholder="http://localhost:8000">
+  <button id="save">Save</button>
+  <div id="status"></div>
+  <script src="options.js"></script>
+</body>
+</html>

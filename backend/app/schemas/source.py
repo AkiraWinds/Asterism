@@ -9,12 +9,14 @@ class SourceCreateRequest(BaseModel):
     title: str | None = None
     content: str | None = None
     url: str | None = None
+    html: str | None = None
 
 
 class SourceSummaryResponse(BaseModel):
     id: str
     title: str
     created_at: str
+    read_at: str | None = None
 
 
 class SourceDetailResponse(BaseModel):
@@ -23,3 +25,4 @@ class SourceDetailResponse(BaseModel):
     created_at: str
     content: str
     analysis: AnalysisResult | None = None
+    read_at: str | None = None
