@@ -99,3 +99,12 @@ def test_load_brave_api_key_returns_key_when_set(tmp_path: Path):
         json.dumps({"strategy": "api-key", "provider": "anthropic", "api_key": "fake", "brave_api_key": "brave-key"})
     )
     assert load_brave_api_key(tmp_path) == "brave-key"
+
+
+def test_agent_config_repr_never_includes_the_api_key():
+    # SANYI.md Buyi: credential handling — api_key must never be written to
+    # logs/debug output. logger.info("%s", config) (or any bare print/repr)
+    # must not leak it, so the dataclass field is repr=False.
+    config = AgentConfig(strategy="api-key", provider="anthropic", api_key="sk-super-secret")
+
+    assert "sk-super-secret" not in repr(config)
