@@ -135,8 +135,11 @@ export function SelectionToolbar({
       const range = selection.getRangeAt(0);
       if (!container.contains(range.commonAncestorContainer)) {
         // A genuinely new selection was made elsewhere on the page (outside
-        // our container) — that's an explicit "moved on" signal, so close.
+        // our container) — that's an explicit "moved on" signal, so close,
+        // and drop the attached highlight too: the user has moved their
+        // attention to different text entirely, not just paused reading.
         resetToolbar();
+        onSelectionCleared();
         return;
       }
 
@@ -203,10 +206,17 @@ export function SelectionToolbar({
     }
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        resetToolbar();
-        onSelectionCleared();
-      }
+      if (event.key !== "Escape") return;
+      resetToolbar();
+      // Same "don't clear while the user is about to use the attachment"
+      // carve-out as handlePointerUp above, but Escape has no DOM range to
+      // check against the container — so instead check what's actually
+      // focused: an Escape pressed while typing in the chat input (e.g. to
+      // dismiss autofill or IME composition) must not wipe out the
+      // highlight that input is meant to be used with.
+      const target = event.target as HTMLElement | null;
+      const isTypingInFormField = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA";
+      if (!isTypingInFormField) onSelectionCleared();
     }
 
     document.addEventListener("selectionchange", handleSelectionChange);
