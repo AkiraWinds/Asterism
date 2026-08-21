@@ -23,10 +23,12 @@ export function ReaderPane({
   sourceId,
   onMarkedRead,
   onHighlightSelected,
+  onHighlightCleared,
 }: {
   sourceId: string;
   onMarkedRead: (sourceId: string, readAt: string) => void;
   onHighlightSelected: (text: string) => void;
+  onHighlightCleared: () => void;
 }) {
   const [source, setSource] = useState<SourceDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -274,7 +276,12 @@ export function ReaderPane({
         </div>
       </div>
 
-      <SelectionToolbar sourceId={sourceId} containerRef={contentRef} onHighlightSelected={onHighlightSelected} />
+      <SelectionToolbar
+        sourceId={sourceId}
+        containerRef={contentRef}
+        onHighlightSelected={onHighlightSelected}
+        onSelectionCleared={onHighlightCleared}
+      />
     </div>
   );
 }
