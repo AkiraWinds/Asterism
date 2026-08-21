@@ -67,7 +67,8 @@ body {
 }
 
 .workspace-resize-handle:hover,
-.workspace-resize-handle[data-resize-handle-active] {
+.workspace-resize-handle[data-separator="active"],
+.workspace-resize-handle[data-separator="focus"] {
   background: var(--color-accent);
 }
 

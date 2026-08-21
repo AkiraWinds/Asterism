@@ -4,12 +4,18 @@
 // the selected source (column 2+3 combined), and chat scoped to that source
 // (column 4). Replaces the old separate home list, /sources/[id], and /radar
 // pages — see docs/superpowers/specs/2026-08-18-unified-reader-layout-design.md.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, Suspense } from "react";
+import dynamic from "next/dynamic";
 import { deleteSource, listSources, SourceSummary } from "@/lib/api";
 import { LibraryColumn } from "@/components/LibraryColumn";
 import { ReaderPane } from "@/components/ReaderPane";
 import { ChatPanel } from "@/components/ChatPanel";
-import { Panel, Group, Separator } from "react-resizable-panels";
+
+// Import WorkspaceLayout dynamically with ssr: false to avoid localStorage
+// access during server-side rendering (useDefaultLayout requires localStorage).
+const WorkspaceLayout = dynamic(() => import("@/components/WorkspaceLayout").then((mod) => ({ default: mod.WorkspaceLayout })), {
+  ssr: false,
+});
 
 export default function WorkspacePage() {
   const [sources, setSources] = useState<SourceSummary[]>([]);
@@ -58,13 +64,15 @@ export default function WorkspacePage() {
   }, []);
 
   return (
-    <Group orientation="horizontal" id="asterism-workspace-layout" className="flex min-h-0 flex-1">
-      <Panel defaultSize={25} minSize={18} className="min-w-0">
-        {deleteError && (
+    <WorkspaceLayout
+      deleteError={
+        deleteError && (
           <p className="border-b border-border bg-red-50 p-2 text-xs text-destructive dark:bg-red-950/40">
             {deleteError}
           </p>
-        )}
+        )
+      }
+      libraryColumn={
         <LibraryColumn
           sources={sources}
           selectedId={selectedId}
@@ -73,24 +81,18 @@ export default function WorkspacePage() {
           onCreated={handleCreated}
           onAdded={handleAdded}
         />
-      </Panel>
-
-      <Separator className="workspace-resize-handle" />
-
-      <Panel defaultSize={50} className="min-w-0">
-        {selectedId ? (
+      }
+      readerPane={
+        selectedId ? (
           <ReaderPane sourceId={selectedId} onMarkedRead={handleMarkedRead} onHighlightSelected={setAttachedHighlight} />
         ) : (
           <div className="flex h-full items-center justify-center p-6">
             <p className="text-sm text-muted-foreground">Select an article to read</p>
           </div>
-        )}
-      </Panel>
-
-      <Separator className="workspace-resize-handle" />
-
-      <Panel defaultSize={25} minSize={20} className="min-w-0">
-        {selectedId ? (
+        )
+      }
+      chatPanel={
+        selectedId ? (
           <ChatPanel
             sourceId={selectedId}
             attachedHighlight={attachedHighlight}
@@ -100,8 +102,8 @@ export default function WorkspacePage() {
           <div className="flex h-full items-center justify-center p-6">
             <p className="text-sm text-muted-foreground">Chat opens once you select an article</p>
           </div>
-        )}
-      </Panel>
-    </Group>
+        )
+      }
+    />
   );
 }
