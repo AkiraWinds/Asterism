@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers.agent import router as agent_router
 from app.routers.graph import router as graph_router
+from app.routers.preferences import router as preferences_router
 from app.routers.radar import router as radar_router
 from app.routers.sources import router as sources_router
 from app.routers.watchlist import router as watchlist_router
@@ -20,6 +21,7 @@ app.add_middleware(
 app.include_router(sources_router)
 app.include_router(agent_router)
 app.include_router(graph_router)
+app.include_router(preferences_router)
 app.include_router(radar_router)
 app.include_router(watchlist_router)
 app.include_router(wiki_router)
