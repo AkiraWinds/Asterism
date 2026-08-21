@@ -4,7 +4,7 @@
 // the selected source (column 2+3 combined), and chat scoped to that source
 // (column 4). Replaces the old separate home list, /sources/[id], and /radar
 // pages — see docs/superpowers/specs/2026-08-18-unified-reader-layout-design.md.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { deleteSource, listSources, SourceSummary } from "@/lib/api";
 import { LibraryColumn } from "@/components/LibraryColumn";
 import { ReaderPane } from "@/components/ReaderPane";
@@ -46,9 +46,15 @@ export default function WorkspacePage() {
     setSources((prev) => [source, ...prev]);
   }
 
-  function handleMarkedRead(id: string, readAt: string) {
+  // Stable identity (useCallback, not a plain function) is required here:
+  // this is passed to ReaderPane as `onMarkedRead`, which its dwell-timer
+  // useCallback depends on, which its scroll-reset effect in turn depends
+  // on. An unstable reference here made that effect re-fire — and reset
+  // the reader's scroll position to the top — on every unrelated parent
+  // re-render, e.g. every text selection (which updates attachedHighlight).
+  const handleMarkedRead = useCallback((id: string, readAt: string) => {
     setSources((prev) => prev.map((s) => (s.id === id ? { ...s, read_at: readAt } : s)));
-  }
+  }, []);
 
   return (
     <div className="flex min-h-0 flex-1">

@@ -14,7 +14,7 @@ _FRONTMATTER_KEYS = (
 def render_wiki_page(
     concept_id: str, term: str, updated_at: str, source_highlight_count: int,
     source_provenance_hash: str, source_ids: list[str], body: str,
-    related_section: str, sources_section: str,
+    related_section: str, sources_section: str, aspects: list[str] | None = None,
 ) -> str:
     frontmatter_lines = [
         f"concept_id: {json.dumps(concept_id)}",
@@ -24,6 +24,8 @@ def render_wiki_page(
         f"source_provenance_hash: {json.dumps(source_provenance_hash)}",
         f"source_ids: {json.dumps(source_ids)}",
     ]
+    if aspects:
+        frontmatter_lines.append(f"aspects: {json.dumps(aspects)}")
     parts = ["---", *frontmatter_lines, "---", "", body.strip(), ""]
     if related_section:
         parts.append(related_section.strip())
@@ -31,6 +33,24 @@ def render_wiki_page(
     if sources_section:
         parts.append(sources_section.strip())
         parts.append("")
+    return "\n".join(parts)
+
+
+def render_aspect_page(
+    concept_id: str, term: str, aspect_of: str, updated_at: str, source_ids: list[str], body: str,
+) -> str:
+    """Renders one aspect page. No source_provenance_hash/source_highlight_count
+    of its own — aspect pages are always regenerated as a group alongside
+    their overview (see compile.py), staleness is decided once at the
+    concept level, not per aspect."""
+    frontmatter_lines = [
+        f"concept_id: {json.dumps(concept_id)}",
+        f"term: {json.dumps(term)}",
+        f"aspect_of: {json.dumps(aspect_of)}",
+        f"updated_at: {json.dumps(updated_at)}",
+        f"source_ids: {json.dumps(source_ids)}",
+    ]
+    parts = ["---", *frontmatter_lines, "---", "", body.strip(), ""]
     return "\n".join(parts)
 
 
@@ -117,6 +137,8 @@ def render_index(pages: list[dict], attention_items: list[str]) -> str:
             f"- [{page['term']}]({page['slug']}.md) — {definition} · "
             f"{page['source_highlight_count']} highlights · updated {date}"
         )
+        for aspect in page.get("aspect_pages", []):
+            lines.append(f"  - [{aspect['term']}]({aspect['slug']}.md)")
     if attention_items:
         lines += ["", "## Needs attention", ""]
         lines += [f"- {item}" for item in attention_items]
