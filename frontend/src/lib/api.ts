@@ -506,3 +506,23 @@ export async function deleteBoostTopic(id: string): Promise<void> {
   const res = await fetch(`${BACKEND_URL}/radar/boost-topics/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to delete boost topic"));
 }
+
+export interface Preferences {
+  font_scale: number;
+}
+
+export async function getPreferences(): Promise<Preferences> {
+  const res = await fetch(`${BACKEND_URL}/preferences`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load preferences"));
+  return res.json();
+}
+
+export async function updatePreferences(fontScale: number): Promise<Preferences> {
+  const res = await fetch(`${BACKEND_URL}/preferences`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ font_scale: fontScale }),
+  });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to save preferences"));
+  return res.json();
+}
