@@ -159,3 +159,25 @@ def test_save_font_scale_creates_config_when_missing(tmp_path: Path):
 
     data = json.loads((tmp_path / "config.json").read_text())
     assert data["font_scale"] == 0.925
+
+
+def test_save_font_scale_raises_on_invalid_json_instead_of_clobbering(tmp_path: Path):
+    # Regression: previously this silently reset config.json to `{}` before
+    # writing, destroying strategy/provider/api_key/etc with no error raised.
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original = "{not valid json"
+    (tmp_path / "config.json").write_text(original)
+
+    with pytest.raises(ConfigError):
+        save_font_scale(tmp_path, 1.15)
+
+    # File must be left untouched, not clobbered.
+    assert (tmp_path / "config.json").read_text() == original
+
+
+def test_save_font_scale_raises_when_config_is_not_a_dict(tmp_path: Path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config.json").write_text(json.dumps([1, 2, 3]))
+
+    with pytest.raises(ConfigError):
+        save_font_scale(tmp_path, 1.15)

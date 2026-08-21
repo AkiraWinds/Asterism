@@ -1,4 +1,6 @@
 import json
+import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -131,6 +133,15 @@ def save_font_scale(data_root: Path, value: float) -> None:
     single-field config update. Unlike load_font_scale, an out-of-range
     write is rejected outright rather than silently clamped, so a caller
     gets an explicit error instead of a silently-different saved value.
+
+    Unlike the read-path helpers above, a write must never silently paper
+    over a malformed config.json: resetting to `{}` here would destroy
+    'strategy'/'provider'/'api_key'/'embeddings_api_key'/'brave_api_key' with
+    no signal to the caller. So unparseable or non-dict JSON raises
+    ConfigError instead (the /preferences router maps this to a 400),
+    refusing to save rather than clobbering the file. The write itself is
+    also atomic (temp file + os.replace) so a crash/interruption mid-write
+    can't leave config.json truncated for the rest of the app to trip over.
     """
     if not (FONT_SCALE_MIN <= value <= FONT_SCALE_MAX):
         raise ConfigError(f"font_scale must be between {FONT_SCALE_MIN} and {FONT_SCALE_MAX}, got {value!r}")
@@ -138,12 +149,23 @@ def save_font_scale(data_root: Path, value: float) -> None:
     config_path = data_root / "config.json"
     data_root.mkdir(parents=True, exist_ok=True)
 
-    data = {}
+    data: dict = {}
     if config_path.exists():
         try:
             data = json.loads(config_path.read_text())
-        except json.JSONDecodeError:
-            data = {}
+        except json.JSONDecodeError as exc:
+            raise ConfigError(f"config.json is not valid JSON: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ConfigError(f"config.json must contain a JSON object, got {type(data).__name__}")
 
     data["font_scale"] = value
-    config_path.write_text(json.dumps(data, indent=2))
+
+    fd, tmp_path = tempfile.mkstemp(dir=data_root, prefix=".config.json.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(data, indent=2))
+        os.replace(tmp_path, config_path)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
