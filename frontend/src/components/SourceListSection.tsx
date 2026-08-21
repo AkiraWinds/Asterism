@@ -3,6 +3,23 @@
 import { X } from "@phosphor-icons/react";
 import { SourceSummary } from "@/lib/api";
 
+// Below this container width, a source row is title-only — the container
+// isn't wide enough to show a created-date line without wrapping onto a
+// second line per row, which would blow up list density right when
+// density matters most (a narrow Library column).
+const DATE_REVEAL_BREAKPOINT = "@min-[320px]";
+
+function formatRelativeDate(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
+}
+
 function SourceRow({
   source,
   selected,
@@ -20,8 +37,11 @@ function SourceRow({
         selected ? "bg-accent-secondary/30 text-foreground" : "text-foreground hover:bg-muted"
       }`}
     >
-      <button type="button" onClick={onSelect} className="flex-1 truncate text-left">
-        {source.title}
+      <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-baseline gap-2 text-left">
+        <span className="truncate">{source.title}</span>
+        <span className={`hidden shrink-0 text-xs text-muted-foreground ${DATE_REVEAL_BREAKPOINT}:inline`}>
+          {formatRelativeDate(source.created_at)}
+        </span>
       </button>
       <button
         type="button"
