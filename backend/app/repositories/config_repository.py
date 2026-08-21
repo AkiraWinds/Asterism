@@ -94,3 +94,56 @@ def load_brave_api_key(data_root: Path) -> str | None:
     except json.JSONDecodeError:
         return None
     return data.get("brave_api_key") or None
+
+
+FONT_SCALE_MIN = 0.85
+FONT_SCALE_MAX = 1.3
+FONT_SCALE_DEFAULT = 1.0
+
+
+def load_font_scale(data_root: Path) -> float:
+    """UI display preference, independent of provider config — same loosely
+    read precedent as load_brave_api_key: a missing file, invalid JSON, or
+    missing/malformed field all fall back to the default rather than
+    raising, since this must never block the app from rendering. A value
+    outside the valid range (e.g. a hand-edited config.json) is clamped
+    rather than rejected, for the same reason.
+    """
+    config_path = data_root / "config.json"
+    if not config_path.exists():
+        return FONT_SCALE_DEFAULT
+
+    try:
+        data = json.loads(config_path.read_text())
+    except json.JSONDecodeError:
+        return FONT_SCALE_DEFAULT
+
+    value = data.get("font_scale")
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return FONT_SCALE_DEFAULT
+
+    return min(max(float(value), FONT_SCALE_MIN), FONT_SCALE_MAX)
+
+
+def save_font_scale(data_root: Path, value: float) -> None:
+    """Read-modify-write: preserves every other config.json field (provider
+    strategy/keys included) untouched, the same shape as any other
+    single-field config update. Unlike load_font_scale, an out-of-range
+    write is rejected outright rather than silently clamped, so a caller
+    gets an explicit error instead of a silently-different saved value.
+    """
+    if not (FONT_SCALE_MIN <= value <= FONT_SCALE_MAX):
+        raise ConfigError(f"font_scale must be between {FONT_SCALE_MIN} and {FONT_SCALE_MAX}, got {value!r}")
+
+    config_path = data_root / "config.json"
+    data_root.mkdir(parents=True, exist_ok=True)
+
+    data = {}
+    if config_path.exists():
+        try:
+            data = json.loads(config_path.read_text())
+        except json.JSONDecodeError:
+            data = {}
+
+    data["font_scale"] = value
+    config_path.write_text(json.dumps(data, indent=2))
