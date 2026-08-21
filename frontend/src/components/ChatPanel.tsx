@@ -8,9 +8,10 @@ import {
   deleteConversation,
   getChatHistory,
   listConversations,
+  saveHighlight,
   streamChatMessage,
 } from "@/lib/api";
-import { Plus, X } from "@phosphor-icons/react";
+import { BookmarkSimple, Check, Plus, X } from "@phosphor-icons/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -30,6 +31,13 @@ export function ChatPanel({
   const [sending, setSending] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
+  // "Save as note" state for assistant turns, keyed by turn index — UI-only,
+  // not persisted (a turn already saved is a harmless duplicate no-op if
+  // saved again; see find_duplicate_highlight on the backend), so this
+  // resets on reload rather than round-tripping through the API on load.
+  const [savedTurns, setSavedTurns] = useState<Set<number>>(new Set());
+  const [savingTurn, setSavingTurn] = useState<number | null>(null);
+  const [saveErrors, setSaveErrors] = useState<Record<number, string>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -120,6 +128,33 @@ export function ChatPanel({
     }
   }
 
+  // Saves a finished assistant reply into the same highlight/note store the
+  // reader's text-selection toolbar writes to — reusing POST
+  // /sources/{id}/highlights with note: null, the same way promote_feedback
+  // already reuses it for non-source-quote AI content on the backend. That
+  // also means a saved reply goes through concept extraction into the graph,
+  // same as any other highlight.
+  async function handleSaveAsNote(turnIndex: number, content: string) {
+    if (savingTurn !== null || savedTurns.has(turnIndex)) return;
+    setSavingTurn(turnIndex);
+    setSaveErrors((prev) => {
+      const next = { ...prev };
+      delete next[turnIndex];
+      return next;
+    });
+    try {
+      const result = await saveHighlight(sourceId, content, null);
+      setSavedTurns((prev) => new Set(prev).add(turnIndex));
+      if (result.extraction_error) {
+        setSaveErrors((prev) => ({ ...prev, [turnIndex]: `Saved, but concept extraction failed: ${result.extraction_error}` }));
+      }
+    } catch (err) {
+      setSaveErrors((prev) => ({ ...prev, [turnIndex]: err instanceof Error ? err.message : "Failed to save" }));
+    } finally {
+      setSavingTurn(null);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col rounded-lg border border-border bg-card">
       <div className="flex items-center gap-1 overflow-x-auto border-b border-border px-2 py-2">
@@ -164,11 +199,34 @@ export function ChatPanel({
               <p className="inline-block rounded-lg bg-accent px-3 py-2 text-sm text-accent-on">{turn.content}</p>
             </div>
           ) : (
-            <div key={i} className="text-left">
+            <div key={i} className="group text-left">
               <div className="prose prose-sm prose-neutral dark:prose-invert inline-block max-w-none rounded-lg bg-muted px-3 py-2 text-foreground">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{turn.content}</ReactMarkdown>
               </div>
-              {turn.truncated && <p className="mt-1 text-xs text-destructive">Response interrupted</p>}
+              <div className="mt-1 flex items-center gap-2">
+                {turn.truncated && <p className="text-xs text-destructive">Response interrupted</p>}
+                {!turn.truncated && turn.content && (
+                  <button
+                    type="button"
+                    onClick={() => handleSaveAsNote(i, turn.content)}
+                    disabled={savingTurn === i || savedTurns.has(i)}
+                    className={`flex items-center gap-1 rounded px-1 text-xs transition-opacity ${
+                      savedTurns.has(i) || savingTurn === i ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                    } ${savedTurns.has(i) ? "text-green-600 dark:text-green-400" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    {savedTurns.has(i) ? (
+                      <>
+                        <Check size={12} weight="thin" /> Saved
+                      </>
+                    ) : (
+                      <>
+                        <BookmarkSimple size={12} weight="thin" /> {savingTurn === i ? "Saving…" : "Save as note"}
+                      </>
+                    )}
+                  </button>
+                )}
+                {saveErrors[i] && <p className="text-xs text-destructive">{saveErrors[i]}</p>}
+              </div>
             </div>
           )
         )}
