@@ -3,11 +3,16 @@
 import { X } from "@phosphor-icons/react";
 import { SourceSummary } from "@/lib/api";
 
-// Below this container width, a source row is title-only — the container
-// isn't wide enough to show a created-date line without wrapping onto a
-// second line per row, which would blow up list density right when
+// Below 320px of container width, a source row is title-only — the
+// container isn't wide enough to show a created-date line without wrapping
+// onto a second line per row, which would blow up list density right when
 // density matters most (a narrow Library column).
-const DATE_REVEAL_BREAKPOINT = "@min-[320px]";
+//
+// The breakpoint is inlined as a literal class name below (not a template
+// literal built from a constant) because Tailwind's scanner only detects
+// utilities that appear as literal tokens in source — `${VAR}:inline` is
+// never a real string anywhere in the file, so the utility would never be
+// generated.
 
 function formatRelativeDate(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -39,7 +44,7 @@ function SourceRow({
     >
       <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-baseline gap-2 text-left">
         <span className="truncate">{source.title}</span>
-        <span className={`hidden shrink-0 text-xs text-muted-foreground ${DATE_REVEAL_BREAKPOINT}:inline`}>
+        <span className="hidden shrink-0 text-xs text-muted-foreground @min-[320px]:inline">
           {formatRelativeDate(source.created_at)}
         </span>
       </button>

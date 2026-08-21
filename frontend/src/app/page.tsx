@@ -4,18 +4,12 @@
 // the selected source (column 2+3 combined), and chat scoped to that source
 // (column 4). Replaces the old separate home list, /sources/[id], and /radar
 // pages — see docs/superpowers/specs/2026-08-18-unified-reader-layout-design.md.
-import { useCallback, useEffect, useState, Suspense } from "react";
-import dynamic from "next/dynamic";
+import { useCallback, useEffect, useState } from "react";
 import { deleteSource, listSources, SourceSummary } from "@/lib/api";
 import { LibraryColumn } from "@/components/LibraryColumn";
 import { ReaderPane } from "@/components/ReaderPane";
 import { ChatPanel } from "@/components/ChatPanel";
-
-// Import WorkspaceLayout dynamically with ssr: false to avoid localStorage
-// access during server-side rendering (useDefaultLayout requires localStorage).
-const WorkspaceLayout = dynamic(() => import("@/components/WorkspaceLayout").then((mod) => ({ default: mod.WorkspaceLayout })), {
-  ssr: false,
-});
+import { WorkspaceLayout } from "@/components/WorkspaceLayout";
 
 export default function WorkspacePage() {
   const [sources, setSources] = useState<SourceSummary[]>([]);
