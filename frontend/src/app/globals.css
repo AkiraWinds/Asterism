@@ -53,3 +53,28 @@ body {
   color: var(--color-foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
+
+/* Draggable divider between workspace panels (Library/Reader/Chat) — see
+   docs/superpowers/specs/2026-08-21-resizable-panels-design.md. Unstyled by
+   default from react-resizable-panels, so this gives it a visible bar with
+   a hover/drag affordance in both themes. */
+.workspace-resize-handle {
+  position: relative;
+  width: 1px;
+  flex-shrink: 0;
+  background: var(--color-border);
+  transition: background-color 0.15s ease;
+}
+
+.workspace-resize-handle:hover,
+.workspace-resize-handle[data-resize-handle-active] {
+  background: var(--color-accent);
+}
+
+/* Widen the actual hit target beyond the 1px visible bar without widening
+   the bar itself, so the handle is easy to grab. */
+.workspace-resize-handle::before {
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+}

@@ -9,6 +9,7 @@ import { deleteSource, listSources, SourceSummary } from "@/lib/api";
 import { LibraryColumn } from "@/components/LibraryColumn";
 import { ReaderPane } from "@/components/ReaderPane";
 import { ChatPanel } from "@/components/ChatPanel";
+import { Panel, Group, Separator } from "react-resizable-panels";
 
 export default function WorkspacePage() {
   const [sources, setSources] = useState<SourceSummary[]>([]);
@@ -57,8 +58,8 @@ export default function WorkspacePage() {
   }, []);
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="w-1/4 min-w-[240px] border-r border-border">
+    <Group orientation="horizontal" id="asterism-workspace-layout" className="flex min-h-0 flex-1">
+      <Panel defaultSize={25} minSize={18} className="min-w-0">
         {deleteError && (
           <p className="border-b border-border bg-red-50 p-2 text-xs text-destructive dark:bg-red-950/40">
             {deleteError}
@@ -72,9 +73,11 @@ export default function WorkspacePage() {
           onCreated={handleCreated}
           onAdded={handleAdded}
         />
-      </div>
+      </Panel>
 
-      <div className="w-1/2 border-r border-border">
+      <Separator className="workspace-resize-handle" />
+
+      <Panel defaultSize={50} className="min-w-0">
         {selectedId ? (
           <ReaderPane sourceId={selectedId} onMarkedRead={handleMarkedRead} onHighlightSelected={setAttachedHighlight} />
         ) : (
@@ -82,9 +85,11 @@ export default function WorkspacePage() {
             <p className="text-sm text-muted-foreground">Select an article to read</p>
           </div>
         )}
-      </div>
+      </Panel>
 
-      <div className="w-1/4 min-w-[280px]">
+      <Separator className="workspace-resize-handle" />
+
+      <Panel defaultSize={25} minSize={20} className="min-w-0">
         {selectedId ? (
           <ChatPanel
             sourceId={selectedId}
@@ -96,7 +101,7 @@ export default function WorkspacePage() {
             <p className="text-sm text-muted-foreground">Chat opens once you select an article</p>
           </div>
         )}
-      </div>
-    </div>
+      </Panel>
+    </Group>
   );
 }
