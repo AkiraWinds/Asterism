@@ -115,6 +115,80 @@ def test_link_and_repoint_concept_highlights(tmp_path: Path):
     assert rows == [("c_2",)]
 
 
+def test_link_concept_highlight_is_idempotent_for_same_triple(tmp_path: Path):
+    """Two extracted concepts from the same highlight can both dedup-resolve to
+    the same existing concept, calling link_concept_highlight twice with the
+    identical (concept_id, source_id, highlight_id) triple — that must not
+    produce a duplicate provenance row (which would render as a repeated
+    citation in the compiled wiki page's Sources section)."""
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
+    link_concept_highlight(db_path, "c_1", "source_a", "h_1")
+    link_concept_highlight(db_path, "c_1", "source_a", "h_1")
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute("SELECT concept_id FROM concept_highlights").fetchall()
+    conn.close()
+    assert rows == [("c_1",)]
+
+
+def test_repoint_concept_highlights_also_repoints_concept_sources(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
+    insert_concept(db_path, "c_2", "GraphRAG", "def", [0.2], False, "2026-07-30T00:00:01Z")
+    link_concept_source(db_path, "c_1", "source_a")
+
+    repoint_concept_highlights(db_path, "c_1", "c_2")
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute("SELECT concept_id FROM concept_sources WHERE source_id = ?", ("source_a",)).fetchall()
+    conn.close()
+    assert rows == [("c_2",)]
+
+
+def test_repoint_concept_highlights_drops_leftover_duplicate_after_ignored_update(tmp_path: Path):
+    """When new_concept_id already has the same provenance row old_concept_id is
+    being repointed to, the UPDATE OR IGNORE leaves that row behind under
+    old_concept_id rather than raising — repoint must still clean it up so no
+    row survives referencing the about-to-be-deleted old_concept_id."""
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
+    insert_concept(db_path, "c_2", "GraphRAG", "def", [0.2], False, "2026-07-30T00:00:01Z")
+    link_concept_highlight(db_path, "c_1", "source_a", "h_1")
+    link_concept_highlight(db_path, "c_2", "source_a", "h_1")
+
+    repoint_concept_highlights(db_path, "c_1", "c_2")
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute("SELECT concept_id FROM concept_highlights WHERE highlight_id = ?", ("h_1",)).fetchall()
+    conn.close()
+    assert rows == [("c_2",)]
+
+
+def test_init_db_dedupes_preexisting_duplicate_provenance_rows(tmp_path: Path):
+    """Migration guard: a database that already accumulated duplicate provenance
+    rows (from before this fix) must not fail CREATE UNIQUE INDEX on the next
+    init_db() call — the duplicates should be collapsed first."""
+    db_path = graph_db_path(tmp_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE concept_highlights (concept_id TEXT NOT NULL, source_id TEXT NOT NULL, highlight_id TEXT NOT NULL)"
+    )
+    conn.execute("CREATE TABLE concept_sources (concept_id TEXT NOT NULL, source_id TEXT NOT NULL)")
+    conn.execute("INSERT INTO concept_highlights VALUES ('c_1', 'source_a', 'h_1')")
+    conn.execute("INSERT INTO concept_highlights VALUES ('c_1', 'source_a', 'h_1')")
+    conn.commit()
+    conn.close()
+
+    init_db(db_path)
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute("SELECT concept_id FROM concept_highlights").fetchall()
+    conn.close()
+    assert rows == [("c_1",)]
+
+
 def test_delete_concept_highlights_for_highlight_clears_only_that_highlights_links(tmp_path: Path):
     db_path = _new_db(tmp_path)
     insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
@@ -262,6 +336,19 @@ def test_link_concept_source_creates_provenance_row(tmp_path: Path):
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT concept_id, source_id FROM concept_sources").fetchall()
     assert [(r["concept_id"], r["source_id"]) for r in rows] == [("c_1", "source_a")]
+
+
+def test_link_concept_source_is_idempotent_for_same_pair(tmp_path: Path):
+    """Two digest concepts from the same source can both dedup-resolve to the
+    same existing concept — link_concept_source must not double-insert."""
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-07-30T00:00:00Z")
+    link_concept_source(db_path, "c_1", "source_a")
+    link_concept_source(db_path, "c_1", "source_a")
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute("SELECT concept_id, source_id FROM concept_sources").fetchall()
+    assert rows == [("c_1", "source_a")]
 
 
 def test_delete_concept_sources_for_source_clears_only_that_sources_links(tmp_path: Path):

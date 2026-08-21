@@ -26,3 +26,7 @@ class SourceDetailResponse(BaseModel):
     content: str
     analysis: AnalysisResult | None = None
     read_at: str | None = None
+    # True when this response is an already-existing source returned in place
+    # of creating a new one (see find_duplicate_source in create_source_endpoint),
+    # not a freshly ingested source.
+    duplicate: bool = False

@@ -226,6 +226,41 @@ def test_process_highlight_merges_on_same_judgment_without_new_concept(tmp_path:
     assert result.edges == []
 
 
+def test_process_highlight_does_not_duplicate_provenance_when_two_items_resolve_to_same_concept(tmp_path: Path):
+    """Reproduces the reported wiki bug: one highlight's extraction yields two
+    terms that the dedup judge both resolve to the same existing concept.
+    Each resolution calls link_fn(existing_id) with the identical
+    (concept_id, source_id, highlight_id) triple — that must collapse to one
+    concept_highlights row, not two (which rendered as the same citation
+    twice in the compiled wiki page's Sources section)."""
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    from app.graph_store.store import insert_concept
+    insert_concept(db_path, "c_existing", "knowledge graphs", "def", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
+
+    provider = MagicMock()
+    provider.complete.side_effect = [
+        json.dumps([
+            {"term": "knowledge graphs", "definition": "def restated", "self_relevant": False},
+            {"term": "enterprise context", "definition": "def restated again", "self_relevant": False},
+        ]),
+        json.dumps([{"existing_concept_id": "c_existing", "judgment": "same", "confidence": "high",
+                      "relationship": "none", "summary": "identical"}]),
+        json.dumps([{"existing_concept_id": "c_existing", "judgment": "same", "confidence": "high",
+                      "relationship": "none", "summary": "identical"}]),
+    ]
+
+    with patch("app.concept_graph.pipeline.embed_text", return_value=[0.1, 0.2]):
+        process_highlight(tmp_path, "source_a", _make_highlight(), provider, "sk-embed")
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT concept_id, source_id, highlight_id FROM concept_highlights"
+    ).fetchall()
+    conn.close()
+    assert rows == [("c_existing", "source_a", "h_1")]
+
+
 def test_process_highlight_sets_extraction_error_on_malformed_response(tmp_path: Path):
     db_path = graph_db_path(tmp_path)
     init_db(db_path)
