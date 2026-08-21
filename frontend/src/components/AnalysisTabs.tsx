@@ -52,7 +52,7 @@ export function AnalysisTabs({
 
       <div className="mt-4">
         {active === "reader" && (
-          <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none rounded-lg border border-border bg-card p-5">
+          <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none rounded-lg border border-border bg-card p-3 @min-[560px]:p-5 @min-[720px]:prose-base">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
           </div>
         )}
