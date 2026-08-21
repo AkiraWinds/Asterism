@@ -11,6 +11,8 @@ import {
   streamChatMessage,
 } from "@/lib/api";
 import { Plus, X } from "@phosphor-icons/react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export function ChatPanel({
   sourceId,
@@ -156,21 +158,33 @@ export function ChatPanel({
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
         {loadError && <p className="text-sm text-destructive">{loadError}</p>}
-        {turns.map((turn, i) => (
-          <div key={i} className={turn.role === "user" ? "text-right" : "text-left"}>
-            <p
-              className={`inline-block rounded-lg px-3 py-2 text-sm ${
-                turn.role === "user" ? "bg-accent text-accent-on" : "bg-muted text-foreground"
-              }`}
-            >
-              {turn.content}
-            </p>
-            {turn.truncated && <p className="mt-1 text-xs text-destructive">Response interrupted</p>}
-          </div>
-        ))}
-        {sending && streamingText && (
+        {turns.map((turn, i) =>
+          turn.role === "user" ? (
+            <div key={i} className="text-right">
+              <p className="inline-block rounded-lg bg-accent px-3 py-2 text-sm text-accent-on">{turn.content}</p>
+            </div>
+          ) : (
+            <div key={i} className="text-left">
+              <div className="prose prose-sm prose-neutral dark:prose-invert inline-block max-w-none rounded-lg bg-muted px-3 py-2 text-foreground">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{turn.content}</ReactMarkdown>
+              </div>
+              {turn.truncated && <p className="mt-1 text-xs text-destructive">Response interrupted</p>}
+            </div>
+          )
+        )}
+        {sending && (
           <div className="text-left">
-            <p className="inline-block rounded-lg bg-muted px-3 py-2 text-sm text-foreground">{streamingText}</p>
+            {streamingText ? (
+              <div className="prose prose-sm prose-neutral dark:prose-invert inline-block max-w-none rounded-lg bg-muted px-3 py-2 text-foreground">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
+              </div>
+            ) : (
+              <p className="inline-flex items-center gap-1 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current" />
+              </p>
+            )}
           </div>
         )}
         <div ref={bottomRef} />
