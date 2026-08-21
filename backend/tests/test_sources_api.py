@@ -34,6 +34,40 @@ def test_list_sources(tmp_path: Path, monkeypatch):
     assert titles == {"One", "Two"}
 
 
+def test_create_source_pasting_same_text_twice_returns_existing_source(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+
+    first = client.post("/sources", json={"title": "Note", "content": "Same body"}).json()
+    second = client.post("/sources", json={"title": "Note again", "content": "Same body"}).json()
+
+    assert second["id"] == first["id"]
+    assert second["duplicate"] is True
+
+    # No second directory should have been created under library/.
+    assert len(list((tmp_path / "library").iterdir())) == 1
+
+
+def test_create_source_from_url_twice_returns_existing_source_without_refetching(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    fetch_calls = {"n": 0}
+
+    def _fetch(url):
+        fetch_calls["n"] += 1
+        return "<html><head><title>Fetched Title</title></head><body>hi</body></html>"
+
+    monkeypatch.setattr("app.routers.sources.fetch_url", _fetch)
+    monkeypatch.setattr("app.routers.sources.extract_content", lambda html, url, data_root: "Extracted body")
+
+    first = client.post("/sources", json={"url": "https://example.com/article"}).json()
+    second = client.post("/sources", json={"url": "https://example.com/article"}).json()
+
+    assert second["id"] == first["id"]
+    assert second["duplicate"] is True
+    # The duplicate check runs before fetch_url, so a re-posted URL never
+    # triggers a second fetch.
+    assert fetch_calls["n"] == 1
+
+
 def test_get_missing_source_returns_404(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
 

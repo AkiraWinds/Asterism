@@ -358,6 +358,33 @@ def mark_source_read(data_root: Path, source_id: str) -> ReadingState:
     return state
 
 
+def find_duplicate_source(data_root: Path, *, url: str | None = None, content: str | None = None) -> SourceRecord | None:
+    """Return an existing source with the same source_url (URL ingestion) or the
+    same content (pasted-text ingestion), or None. Exactly one of url/content is
+    expected, matching the two branches of create_source_endpoint. Exact match
+    only (after whitespace-normalization for content) — mirrors
+    find_duplicate_highlight/find_feedback_entry's matching rule elsewhere in
+    this file: catches an accidental re-paste of the same URL/text, not a
+    paraphrase or a deliberate re-capture. Sources still mid-ingestion (no
+    content.md yet) are skipped rather than treated as a match."""
+    library_dir = data_root / "library"
+    if not library_dir.exists():
+        return None
+    for source_dir in library_dir.iterdir():
+        meta_path = source_dir / "meta.json"
+        if not meta_path.exists():
+            continue
+        meta = json.loads(meta_path.read_text())
+        if url is not None:
+            if meta.get("source_url") == url:
+                return get_source(data_root, meta["id"])
+        elif content is not None:
+            record = get_source(data_root, meta["id"])
+            if record is not None and record.content.strip() == content.strip():
+                return record
+    return None
+
+
 def read_source_url(data_root: Path, source_id: str) -> str | None:
     """Read meta.json's source_url field, present only for URL-ingested sources
     (see create_source_from_url) — None for pasted-text/write-text sources."""

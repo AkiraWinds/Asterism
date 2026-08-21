@@ -40,6 +40,7 @@ from app.repositories.source_repository import (
     delete_conversation,
     delete_source,
     find_duplicate_highlight,
+    find_duplicate_source,
     get_source,
     list_conversations,
     list_sources,
@@ -87,6 +88,17 @@ def create_source_endpoint(payload: SourceCreateRequest):
     data_root = get_data_root()
 
     if payload.url:
+        # Check before fetching, not after: this both avoids a wasted
+        # fetch+extraction round-trip for a URL already in the library, and
+        # is the only guard against ingesting the exact same page twice —
+        # nothing else in this codebase deduplicates sources (see
+        # find_duplicate_source's docstring for the matching rule).
+        existing = find_duplicate_source(data_root, url=payload.url)
+        if existing is not None:
+            return SourceDetailResponse(
+                id=existing.id, title=existing.title, created_at=existing.created_at, content=existing.content,
+                analysis=read_analysis(data_root, existing.id), read_at=existing.read_at, duplicate=True,
+            )
         if payload.html:
             # Pre-fetched by a caller that already has the rendered page in hand (e.g. the
             # browser extension), so it can bypass server-side fetch entirely — this is how
@@ -140,6 +152,13 @@ def create_source_endpoint(payload: SourceCreateRequest):
     if not payload.title or payload.content is None:
         raise HTTPException(
             status_code=400, detail="Both 'title' and 'content' are required when 'url' is not provided"
+        )
+
+    existing = find_duplicate_source(data_root, content=payload.content)
+    if existing is not None:
+        return SourceDetailResponse(
+            id=existing.id, title=existing.title, created_at=existing.created_at, content=existing.content,
+            analysis=read_analysis(data_root, existing.id), read_at=existing.read_at, duplicate=True,
         )
 
     record = create_source(data_root, title=payload.title, content=payload.content)

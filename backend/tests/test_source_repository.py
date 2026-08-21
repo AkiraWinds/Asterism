@@ -138,6 +138,57 @@ def test_create_source_from_url_writes_error_txt_on_partial_write_failure(tmp_pa
     assert "disk full" in (source_dir / "error.txt").read_text()
 
 
+def test_find_duplicate_source_matches_by_url(tmp_path: Path):
+    from app.repositories.source_repository import create_source_from_url, find_duplicate_source
+
+    record = create_source_from_url(
+        tmp_path, url="https://example.com/article", title="Example Article",
+        html="<html>raw</html>", content="Extracted markdown body",
+    )
+
+    found = find_duplicate_source(tmp_path, url="https://example.com/article")
+
+    assert found is not None
+    assert found.id == record.id
+
+
+def test_find_duplicate_source_returns_none_for_new_url(tmp_path: Path):
+    from app.repositories.source_repository import create_source_from_url, find_duplicate_source
+
+    create_source_from_url(
+        tmp_path, url="https://example.com/article", title="Example Article",
+        html="<html>raw</html>", content="Extracted markdown body",
+    )
+
+    assert find_duplicate_source(tmp_path, url="https://example.com/other-article") is None
+
+
+def test_find_duplicate_source_matches_pasted_text_by_content(tmp_path: Path):
+    from app.repositories.source_repository import find_duplicate_source
+
+    record = create_source(tmp_path, title="My Note", content="Some pasted text.")
+
+    found = find_duplicate_source(tmp_path, content="Some pasted text.")
+
+    assert found is not None
+    assert found.id == record.id
+
+
+def test_find_duplicate_source_content_match_ignores_surrounding_whitespace(tmp_path: Path):
+    from app.repositories.source_repository import find_duplicate_source
+
+    create_source(tmp_path, title="My Note", content="Some pasted text.")
+
+    assert find_duplicate_source(tmp_path, content="  Some pasted text.  \n") is not None
+
+
+def test_find_duplicate_source_returns_none_when_no_sources_exist(tmp_path: Path):
+    from app.repositories.source_repository import find_duplicate_source
+
+    assert find_duplicate_source(tmp_path, url="https://example.com/article") is None
+    assert find_duplicate_source(tmp_path, content="anything") is None
+
+
 def test_create_source_from_url_is_retrievable_via_get_source(tmp_path: Path):
     from app.repositories.source_repository import create_source_from_url, get_source
 

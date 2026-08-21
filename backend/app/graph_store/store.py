@@ -103,6 +103,33 @@ def init_db(db_path: Path) -> None:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(concepts)")}
         if "golden" not in cols:
             conn.execute("ALTER TABLE concepts ADD COLUMN golden INTEGER NOT NULL DEFAULT 0")
+
+        # Migration guard: dedupe existing provenance rows before adding the unique
+        # indexes below — _dedupe_and_insert (app/concept_graph/pipeline.py) calls
+        # link_fn once per extracted item, and when two items from the same
+        # highlight/source both dedup-resolve to the same existing concept, that
+        # produced two identical (concept_id, source_id, highlight_id) rows with
+        # nothing to stop it. Left uncaught, get_concept_provenance ->
+        # resolve_citations -> render_sources_section surfaces the same citation
+        # twice in a compiled wiki page's Sources section. Collapsing here (keep
+        # MIN(rowid)) makes CREATE UNIQUE INDEX below safe to run against a
+        # database that already accumulated duplicates.
+        conn.execute(
+            "DELETE FROM concept_highlights WHERE rowid NOT IN "
+            "(SELECT MIN(rowid) FROM concept_highlights GROUP BY concept_id, source_id, highlight_id)"
+        )
+        conn.execute(
+            "DELETE FROM concept_sources WHERE rowid NOT IN "
+            "(SELECT MIN(rowid) FROM concept_sources GROUP BY concept_id, source_id)"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_concept_highlights_unique "
+            "ON concept_highlights (concept_id, source_id, highlight_id)"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_concept_sources_unique "
+            "ON concept_sources (concept_id, source_id)"
+        )
         conn.commit()
 
 
@@ -161,9 +188,15 @@ def set_concept_golden(db_path: Path, concept_id: str, golden: bool) -> None:
 
 
 def link_concept_highlight(db_path: Path, concept_id: str, source_id: str, highlight_id: str) -> None:
+    """Idempotent: OR IGNORE plus the unique index init_db() creates on
+    (concept_id, source_id, highlight_id) means calling this twice for the same
+    triple (e.g. two extracted concepts from one highlight both dedup-resolving
+    to the same existing concept) is a no-op the second time, instead of a
+    duplicate provenance row that would render as a repeated citation in the
+    compiled wiki page."""
     with _connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO concept_highlights (concept_id, source_id, highlight_id) VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO concept_highlights (concept_id, source_id, highlight_id) VALUES (?, ?, ?)",
             (concept_id, source_id, highlight_id),
         )
         conn.commit()
@@ -172,10 +205,11 @@ def link_concept_highlight(db_path: Path, concept_id: str, source_id: str, highl
 def link_concept_source(db_path: Path, concept_id: str, source_id: str) -> None:
     """Provenance for a concept that came from a source's auto-extracted
     digest concepts, with no highlight involved — the Tier-1 (Phase 6b-2)
-    counterpart to link_concept_highlight."""
+    counterpart to link_concept_highlight. Idempotent for the same reason:
+    OR IGNORE plus the unique index on (concept_id, source_id)."""
     with _connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO concept_sources (concept_id, source_id) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO concept_sources (concept_id, source_id) VALUES (?, ?)",
             (concept_id, source_id),
         )
         conn.commit()
@@ -202,11 +236,29 @@ def delete_concept_sources_for_source(db_path: Path, source_id: str) -> None:
 
 
 def repoint_concept_highlights(db_path: Path, old_concept_id: str, new_concept_id: str) -> None:
+    """Retarget old_concept_id's provenance to new_concept_id in both
+    concept_highlights and concept_sources — called when a review-queue merge
+    deletes old_concept_id, so its Tier-1 (digest) and Tier-2 (highlight)
+    provenance must move with it rather than being silently orphaned (an
+    orphaned concept_sources row referencing a deleted concept_id never
+    surfaces again: get_concept_provenance only ever queries by concept_id,
+    so it's invisible, not merely dangling). OR IGNORE plus the unique
+    indexes init_db() creates means a row that would collide with one
+    new_concept_id already has (e.g. both concepts were separately linked to
+    the same source) is left behind under old_concept_id instead of raising —
+    the DELETE below then drops it, since an ignored update means the same
+    provenance is already represented under new_concept_id."""
     with _connect(db_path) as conn:
         conn.execute(
-            "UPDATE concept_highlights SET concept_id = ? WHERE concept_id = ?",
+            "UPDATE OR IGNORE concept_highlights SET concept_id = ? WHERE concept_id = ?",
             (new_concept_id, old_concept_id),
         )
+        conn.execute("DELETE FROM concept_highlights WHERE concept_id = ?", (old_concept_id,))
+        conn.execute(
+            "UPDATE OR IGNORE concept_sources SET concept_id = ? WHERE concept_id = ?",
+            (new_concept_id, old_concept_id),
+        )
+        conn.execute("DELETE FROM concept_sources WHERE concept_id = ?", (old_concept_id,))
         conn.commit()
 
 
