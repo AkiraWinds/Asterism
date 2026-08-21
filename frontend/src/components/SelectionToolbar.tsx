@@ -11,9 +11,12 @@
 //
 // `onHighlightSelected` is only ever called with a genuinely new non-empty
 // in-container selection — never with `null`. The attached highlight is a
-// "latched" value owned by the parent; clearing it is an explicit user action
-// (dismiss button / after send), not something that fires just because the
-// live selection collapsed (e.g. clicking into the chat input). See
+// "latched" value owned by the parent; clearing it happens either via an
+// explicit user action (dismiss button / after send) or via
+// `onSelectionCleared` below, which fires only when the user genuinely
+// abandons the selection (plain click with nothing left selected, or
+// Escape) — never just because focus moved into the chat input, which also
+// collapses window.getSelection() but isn't "abandoning" anything. See
 // docs/superpowers/plans/2026-07-29-chat-copilot.md final-review fix notes.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { saveHighlight } from "@/lib/api";
@@ -22,10 +25,20 @@ export function SelectionToolbar({
   sourceId,
   containerRef,
   onHighlightSelected,
+  onSelectionCleared,
 }: {
   sourceId: string;
   containerRef: React.RefObject<HTMLElement | null>;
   onHighlightSelected: (text: string) => void;
+  // Fired when the user explicitly abandons the current selection with no
+  // residual text left selected (a plain click with nothing dragged out, or
+  // Escape) — as opposed to merely clicking into the chat input, which also
+  // collapses window.getSelection() but must NOT clear the attached
+  // highlight (see file header). Reuses the exact same "plain click, no
+  // surviving selection" signal handlePointerUp already computes below,
+  // rather than a naive documentwide selectionchange-is-empty check, so it
+  // doesn't misfire on the edge cases that check already accounts for.
+  onSelectionCleared: () => void;
 }) {
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [selectedText, setSelectedText] = useState("");
@@ -168,6 +181,7 @@ export function SelectionToolbar({
     //     already positioned the toolbar for it, so do nothing here.
     function handlePointerUp(event: MouseEvent) {
       const toolbar = toolbarRef.current;
+      const container = containerRef.current;
       const target = event.target as Node;
       const selection = window.getSelection();
       const text = selection?.toString().trim() ?? "";
@@ -179,10 +193,20 @@ export function SelectionToolbar({
       }
       if (toolbar?.contains(target)) return;
       resetToolbar();
+      // Only treat this as "abandoning the selection" (and clear the
+      // attached highlight) when the plain click that collapsed it landed
+      // inside the article container itself. A click elsewhere — most
+      // importantly the chat input, so the user can type a question about
+      // the quote they just selected — also collapses window.getSelection()
+      // but must leave the attached highlight alone.
+      if (container?.contains(target)) onSelectionCleared();
     }
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") resetToolbar();
+      if (event.key === "Escape") {
+        resetToolbar();
+        onSelectionCleared();
+      }
     }
 
     document.addEventListener("selectionchange", handleSelectionChange);
@@ -193,7 +217,7 @@ export function SelectionToolbar({
       document.removeEventListener("mouseup", handlePointerUp);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [containerRef, onHighlightSelected, resetToolbar]);
+  }, [containerRef, onHighlightSelected, onSelectionCleared, resetToolbar]);
 
   async function handleSaveAsNote() {
     if (isSavingRef.current) return;
