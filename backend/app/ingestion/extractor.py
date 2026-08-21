@@ -14,7 +14,11 @@ EXTRACTION_PROMPT_TEMPLATE = (
     "it as clean Markdown. Preserve headings, paragraphs, images, and tables where "
     "present. Preserve every inline hyperlink as Markdown link syntax "
     "[text](url) using each anchor's href — do not drop links or flatten them to "
-    "plain text. Return only the Markdown, no commentary.\n\nHTML:\n{html}"
+    "plain text. Preserve every content <img> as Markdown image syntax ![alt](url) "
+    "using that img's actual src — never replace an image with a text description or "
+    "placeholder caption. Preserve every <table> as a Markdown pipe table with the "
+    "same rows/columns — never drop a table or summarize it as prose. Return only the "
+    "Markdown, no commentary.\n\nHTML:\n{html}"
 )
 
 # trafilatura has two verified blind spots that silently drop real content while
