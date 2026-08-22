@@ -30,7 +30,7 @@ export function LibraryColumn({
   const [tab, setTab] = useState<Tab>("library");
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="@container flex h-full flex-col">
       <div className="flex border-b border-border">
         <button
           type="button"

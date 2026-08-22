@@ -9,6 +9,7 @@ import { deleteSource, listSources, SourceSummary } from "@/lib/api";
 import { LibraryColumn } from "@/components/LibraryColumn";
 import { ReaderPane } from "@/components/ReaderPane";
 import { ChatPanel } from "@/components/ChatPanel";
+import { WorkspaceLayout } from "@/components/WorkspaceLayout";
 
 export default function WorkspacePage() {
   const [sources, setSources] = useState<SourceSummary[]>([]);
@@ -64,13 +65,15 @@ export default function WorkspacePage() {
   const handleHighlightCleared = useCallback(() => setAttachedHighlight(null), []);
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="w-1/4 min-w-[240px] border-r border-border">
-        {deleteError && (
+    <WorkspaceLayout
+      deleteError={
+        deleteError && (
           <p className="border-b border-border bg-red-50 p-2 text-xs text-destructive dark:bg-red-950/40">
             {deleteError}
           </p>
-        )}
+        )
+      }
+      libraryColumn={
         <LibraryColumn
           sources={sources}
           selectedId={selectedId}
@@ -79,10 +82,9 @@ export default function WorkspacePage() {
           onCreated={handleCreated}
           onAdded={handleAdded}
         />
-      </div>
-
-      <div className="w-1/2 border-r border-border">
-        {selectedId ? (
+      }
+      readerPane={
+        selectedId ? (
           <ReaderPane
             sourceId={selectedId}
             onMarkedRead={handleMarkedRead}
@@ -93,11 +95,10 @@ export default function WorkspacePage() {
           <div className="flex h-full items-center justify-center p-6">
             <p className="text-sm text-muted-foreground">Select an article to read</p>
           </div>
-        )}
-      </div>
-
-      <div className="w-1/4 min-w-[280px]">
-        {selectedId ? (
+        )
+      }
+      chatPanel={
+        selectedId ? (
           <ChatPanel
             sourceId={selectedId}
             attachedHighlight={attachedHighlight}
@@ -107,8 +108,8 @@ export default function WorkspacePage() {
           <div className="flex h-full items-center justify-center p-6">
             <p className="text-sm text-muted-foreground">Chat opens once you select an article</p>
           </div>
-        )}
-      </div>
-    </div>
+        )
+      }
+    />
   );
 }

@@ -244,9 +244,9 @@ export function ReaderPane({
         onPointerDown={handlePaneInteract}
         onKeyDown={handlePaneInteract}
         tabIndex={-1}
-        className="flex-1 overflow-y-auto px-6 py-6"
+        className="@container flex-1 overflow-y-auto px-4 py-6 @min-[560px]:px-6"
       >
-        <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground">{source.title}</h1>
+        <h1 className="font-heading text-xl font-bold tracking-tight text-foreground @min-[480px]:text-2xl @min-[720px]:text-3xl">{source.title}</h1>
 
         {source.analysis?.triage && <TriageCard triage={source.analysis.triage} />}
 
