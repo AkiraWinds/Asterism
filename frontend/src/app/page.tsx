@@ -57,6 +57,13 @@ export default function WorkspacePage() {
     setSources((prev) => prev.map((s) => (s.id === id ? { ...s, read_at: readAt } : s)));
   }, []);
 
+  // Same stability requirement as handleMarkedRead above: this is threaded
+  // through ReaderPane to SelectionToolbar's effect deps, so an unstable
+  // reference here would re-subscribe its selectionchange/mouseup/keydown
+  // listeners (and, transitively, re-trigger the scroll-reset effect that
+  // depends on onMarkedRead) on every unrelated parent re-render.
+  const handleHighlightCleared = useCallback(() => setAttachedHighlight(null), []);
+
   return (
     <WorkspaceLayout
       deleteError={
@@ -78,7 +85,12 @@ export default function WorkspacePage() {
       }
       readerPane={
         selectedId ? (
-          <ReaderPane sourceId={selectedId} onMarkedRead={handleMarkedRead} onHighlightSelected={setAttachedHighlight} />
+          <ReaderPane
+            sourceId={selectedId}
+            onMarkedRead={handleMarkedRead}
+            onHighlightSelected={setAttachedHighlight}
+            onHighlightCleared={handleHighlightCleared}
+          />
         ) : (
           <div className="flex h-full items-center justify-center p-6">
             <p className="text-sm text-muted-foreground">Select an article to read</p>
