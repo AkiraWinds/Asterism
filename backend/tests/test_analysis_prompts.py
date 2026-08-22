@@ -71,3 +71,9 @@ def test_build_digest_prompt_concepts_no_longer_allow_general_knowledge():
 def test_build_digest_prompt_concepts_include_grounding_example():
     prompt = build_digest_prompt("Title", "Some content.")
     assert "example" in prompt.lower()
+
+
+def test_triage_prompt_instructs_ignoring_page_chrome():
+    prompt = build_triage_prompt("My Article", "Some content here.")
+    assert "ignore" in prompt.lower()
+    assert "navigation" in prompt.lower()

@@ -18,6 +18,8 @@ def build_triage_prompt(title: str, content: str) -> str:
 
 Do NOT penalize: brevity or concise format, informal style or personal-notes format, missing citations or data — judge the ideas themselves, not the packaging.
 
+If the content below includes leftover navigation links, ads, cookie banners, or other page chrome, ignore them entirely and judge only the main article content.
+
 Map your score to an action: 80-100 -> must_read, 60-79 -> worth_reading, 40-59 -> skim, 20-39 -> summary_only, 0-19 -> skip. Also estimate read time in minutes.
 
 Title: {title}
