@@ -37,6 +37,22 @@ function triageKind(action) {
 
 document.getElementById("analyze").addEventListener("click", async () => {
   setTriageResult("Analyzing…");
+  // Both buttons hit the same backend, so a concurrent Save while an Analyze
+  // is in flight (or a second Analyze click) is undesirable — disable both
+  // for the duration of this request and always re-enable via try/finally,
+  // regardless of success, error, or timeout.
+  const analyzeButton = document.getElementById("analyze");
+  const saveButton = document.getElementById("save");
+  analyzeButton.disabled = true;
+  saveButton.disabled = true;
+
+  // The backend's LLM providers can have long timeouts and run_triage retries
+  // once on failure, so a slow/hung provider call can take many minutes.
+  // Meanwhile the popup is destroyed the moment it loses focus, aborting the
+  // fetch client-side while the backend keeps working — so cap our own wait
+  // at 45s rather than letting the user stare at "Analyzing…" indefinitely.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const { html, title, url } = await capturePage(tab.id);
@@ -53,6 +69,7 @@ document.getElementById("analyze").addEventListener("click", async () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url, title, html }),
+      signal: controller.signal,
     });
 
     const body = await response.json();
@@ -69,7 +86,15 @@ document.getElementById("analyze").addEventListener("click", async () => {
     const { score, action, reason } = body.triage;
     setTriageResult(`${score}/100 — ${action}: ${reason}`, triageKind(action));
   } catch (err) {
-    setTriageResult(`Error: ${err.message}`, "low");
+    if (err.name === "AbortError") {
+      setTriageResult("Analyze took too long — the backend may still be working; try again in a moment.", "low");
+    } else {
+      setTriageResult(`Error: ${err.message}`, "low");
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    analyzeButton.disabled = false;
+    saveButton.disabled = false;
   }
 });
 

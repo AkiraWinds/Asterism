@@ -176,7 +176,7 @@ def preview_triage_endpoint(payload: SourceCreateRequest):
     data_root = get_data_root()
 
     if not payload.url or not payload.html:
-        raise HTTPException(status_code=400, detail="Both 'url' and 'html' are required")
+        return _error_response(400, "invalid", "Both 'url' and 'html' are required")
 
     # Same dedup lookup /sources does, run first so a page already in the
     # library never pays for extraction or an LLM call just to be told
@@ -185,7 +185,11 @@ def preview_triage_endpoint(payload: SourceCreateRequest):
     if existing is not None:
         return TriagePreviewResponse(duplicate=True, id=existing.id, title=existing.title, triage=None)
 
-    title = payload.title or extract_title(payload.html, payload.url)
+    # Match create_source_endpoint's URL branch exactly: it always calls
+    # extract_title(html, url) and never trusts a caller-supplied title, so
+    # this preview must triage under the same title an eventual save would
+    # use rather than the extension's raw document.title.
+    title = extract_title(payload.html, payload.url)
 
     # Config errors are a client-fixable setup problem, checked before any
     # extraction/provider work starts — same separation as analyze_source_endpoint.

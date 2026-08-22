@@ -262,6 +262,12 @@ def test_preview_triage_success_writes_nothing_to_disk(tmp_path: Path, monkeypat
         },
     )
 
+    # The endpoint's actual promise is that NOTHING under data_root changes —
+    # not just library/ — so snapshot the full recursive listing before and
+    # after rather than checking one subdirectory. tmp_path may have no files
+    # yet at all (only config.json written above), which this handles fine.
+    before = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*"))
+
     response = client.post(
         "/sources/preview-triage",
         json={"url": "https://example.com/new-article", "html": "<html><body>Some content</body></html>"},
@@ -272,9 +278,9 @@ def test_preview_triage_success_writes_nothing_to_disk(tmp_path: Path, monkeypat
     assert body["duplicate"] is False
     assert body["triage"]["score"] == 72
     assert body["triage"]["action"] == "worth_reading"
-    # Preview must never create a library directory.
-    library_dir = tmp_path / "library"
-    assert not library_dir.exists() or len(list(library_dir.iterdir())) == 0
+
+    after = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*"))
+    assert before == after
 
 
 def test_preview_triage_extraction_provider_timeout_returns_504(tmp_path: Path, monkeypatch):
@@ -319,3 +325,37 @@ def test_preview_triage_missing_url_or_html_returns_400(tmp_path: Path, monkeypa
     response = client.post("/sources/preview-triage", json={"title": "No url or html"})
 
     assert response.status_code == 400
+    body = response.json()
+    assert body["error_type"] == "invalid"
+
+
+def test_preview_triage_exercises_real_run_triage_against_a_fake_provider(tmp_path: Path, monkeypatch):
+    """Every other preview-triage test monkeypatches run_triage itself, so the
+    contract between the endpoint's hand-built AnalysisState dict and what
+    run_triage actually reads from it (title/content/config/data_root) is
+    never exercised. Here we patch one level lower — build_provider inside
+    app.analysis.nodes — and let the real run_triage parse/validate a canned
+    provider response via Triage.model_validate."""
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    (tmp_path / "config.json").write_text('{"strategy": "api-key", "provider": "anthropic", "api_key": "fake"}')
+    monkeypatch.setattr("app.routers.sources.extract_content", lambda html, url, data_root: "Some plain content")
+
+    class _FakeProvider:
+        def complete(self, prompt):
+            return (
+                '{"score": 55, "action": "skim", "reason": "test", '
+                '"read_time_minutes": 3, "density": 50, "originality": 50}'
+            )
+
+    monkeypatch.setattr("app.analysis.nodes.build_provider", lambda config, data_root: _FakeProvider())
+
+    response = client.post(
+        "/sources/preview-triage",
+        json={"url": "https://example.com/real-triage", "html": "<html><body>content</body></html>"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["duplicate"] is False
+    assert body["triage"]["score"] == 55
+    assert body["triage"]["action"] == "skim"

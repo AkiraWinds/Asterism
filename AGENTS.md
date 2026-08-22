@@ -119,7 +119,7 @@ High-confidence dedup merges auto-apply; ambiguous ones (and anything classified
 
 ## Backend API shape (`backend/app/routers/`)
 
-- `sources.py` — CRUD, `/analyze`, `/chats` (list/create/delete conversations), `/chat` (SSE), `/highlights`, `/feedback` (+ `/feedback/{id}/promote` into the graph).
+- `sources.py` — CRUD, `/analyze`, `/preview-triage` (triage a not-yet-saved page without writing to disk), `/chats` (list/create/delete conversations), `/chat` (SSE), `/highlights`, `/feedback` (+ `/feedback/{id}/promote` into the graph).
 - `graph.py` — `GET /graph`, review-queue list + resolve.
 - `wiki.py` — `POST /wiki/compile` (also invocable via `backend/scripts/wiki_compile.py` from cron/launchd — no in-process scheduler by design); `GET /wiki/pages/{concept_id}` and `GET /wiki/pages/by-slug/{slug}` to read a compiled page.
 - `agent.py` — `POST /agent/complete`, a thin pass-through to the provider abstraction.
