@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel
 
-from app.schemas.analysis import AnalysisResult
+from app.schemas.analysis import AnalysisResult, Triage
 
 
 class SourceCreateRequest(BaseModel):
@@ -10,6 +10,13 @@ class SourceCreateRequest(BaseModel):
     content: str | None = None
     url: str | None = None
     html: str | None = None
+
+
+class TriagePreviewResponse(BaseModel):
+    duplicate: bool
+    id: str | None = None
+    title: str | None = None
+    triage: Triage | None = None
 
 
 class SourceSummaryResponse(BaseModel):

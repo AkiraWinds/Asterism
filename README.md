@@ -89,7 +89,7 @@ Runs once daily (default 08:00, edit `StartCalendarInterval` in the plist to cha
 
 ### Browser extension
 
-Captures the current tab's rendered page into your library — useful for content behind a login wall (e.g. a paid Medium article) that server-side fetching can't reach. Load it as an unpacked extension from the `browser-extension/` directory.
+Captures the current tab's rendered page into your library — useful for content behind a login wall (e.g. a paid Medium article) that server-side fetching can't reach. Load it as an unpacked extension from the `browser-extension/` directory. Its popup also has an "Analyze first" button that runs triage against the page without saving it, so you can preview a score/reason before deciding whether "Save this page" is worth it.
 
 ### Persistent local services (optional)
 

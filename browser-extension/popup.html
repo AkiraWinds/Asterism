@@ -4,16 +4,22 @@
   <meta charset="utf-8">
   <style>
     body { font-family: system-ui, sans-serif; width: 240px; padding: 12px; }
-    button { width: 100%; padding: 8px; font-size: 14px; cursor: pointer; }
+    button { width: 100%; padding: 8px; font-size: 14px; cursor: pointer; margin-bottom: 6px; }
     #status { margin-top: 8px; font-size: 13px; word-break: break-word; }
     #status.error { color: #b00020; }
     #status.success { color: #1a7f37; }
+    #triage-result { margin-top: 8px; font-size: 13px; word-break: break-word; }
+    #triage-result.good { color: #1a7f37; }
+    #triage-result.mid { color: #6b6b00; }
+    #triage-result.low { color: #b00020; }
     a { color: inherit; }
   </style>
 </head>
 <body>
   <button id="save">Save this page</button>
+  <button id="analyze">Analyze first</button>
   <div id="status"></div>
+  <div id="triage-result"></div>
   <script src="popup.js"></script>
 </body>
 </html>
