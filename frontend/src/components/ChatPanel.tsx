@@ -191,16 +191,16 @@ export function ChatPanel({
         </button>
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+      <div className="@container flex-1 space-y-3 overflow-y-auto px-3 py-3 @min-[360px]:px-4">
         {loadError && <p className="text-sm text-destructive">{loadError}</p>}
         {turns.map((turn, i) =>
           turn.role === "user" ? (
             <div key={i} className="text-right">
-              <p className="inline-block rounded-lg bg-accent px-3 py-2 text-sm text-accent-on">{turn.content}</p>
+              <p className="inline-block max-w-[92%] rounded-lg bg-accent px-2.5 py-1.5 text-sm text-accent-on @min-[360px]:max-w-[85%] @min-[360px]:px-3 @min-[360px]:py-2">{turn.content}</p>
             </div>
           ) : (
             <div key={i} className="group text-left">
-              <div className="prose prose-sm prose-neutral dark:prose-invert inline-block max-w-none rounded-lg bg-muted px-3 py-2 text-foreground">
+              <div className="prose prose-sm prose-neutral dark:prose-invert inline-block max-w-[92%] rounded-lg bg-muted px-2.5 py-1.5 text-foreground @min-[360px]:max-w-[85%] @min-[360px]:px-3 @min-[360px]:py-2">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{turn.content}</ReactMarkdown>
               </div>
               <div className="mt-1 flex items-center gap-2">
@@ -233,7 +233,7 @@ export function ChatPanel({
         {sending && (
           <div className="text-left">
             {streamingText ? (
-              <div className="prose prose-sm prose-neutral dark:prose-invert inline-block max-w-none rounded-lg bg-muted px-3 py-2 text-foreground">
+              <div className="prose prose-sm prose-neutral dark:prose-invert inline-block max-w-[92%] rounded-lg bg-muted px-2.5 py-1.5 text-foreground @min-[360px]:max-w-[85%] @min-[360px]:px-3 @min-[360px]:py-2">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
               </div>
             ) : (

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Familjen_Grotesk, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { NavBar } from "@/components/NavBar";
+import { FontScaleProvider } from "@/components/FontScaleProvider";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -35,8 +36,10 @@ export default function RootLayout({
       className={`${inter.variable} ${familjenGrotesk.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex h-full flex-col">
-        <NavBar />
-        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        <FontScaleProvider>
+          <NavBar />
+          <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        </FontScaleProvider>
       </body>
     </html>
   );
