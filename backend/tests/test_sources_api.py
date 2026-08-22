@@ -213,3 +213,109 @@ def test_create_source_with_prefetched_html_skips_fetch_url(tmp_path: Path, monk
     body = response.json()
     assert body["title"] == "Captured Title"
     assert body["content"].strip() == "Extracted body"
+
+
+def test_preview_triage_returns_duplicate_without_calling_extract_content(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "app.routers.sources.fetch_url",
+        lambda url: "<html><head><title>Fetched Title</title></head><body>hi</body></html>",
+    )
+    monkeypatch.setattr("app.routers.sources.extract_content", lambda html, url, data_root: "Extracted body")
+    saved = client.post("/sources", json={"url": "https://example.com/article"}).json()
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("extract_content should not be called for a duplicate URL")
+
+    monkeypatch.setattr("app.routers.sources.extract_content", _fail_if_called)
+
+    response = client.post(
+        "/sources/preview-triage",
+        json={"url": "https://example.com/article", "html": "<html>irrelevant</html>"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["duplicate"] is True
+    assert body["id"] == saved["id"]
+    assert body["triage"] is None
+    # No new library entries were created by the preview call.
+    assert len(list((tmp_path / "library").iterdir())) == 1
+
+
+def test_preview_triage_success_writes_nothing_to_disk(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    (tmp_path / "config.json").write_text('{"strategy": "api-key", "provider": "anthropic", "api_key": "fake"}')
+    monkeypatch.setattr("app.routers.sources.extract_content", lambda html, url, data_root: "Extracted body")
+    monkeypatch.setattr(
+        "app.routers.sources.run_triage",
+        lambda state: {
+            "triage": {
+                "score": 72,
+                "action": "worth_reading",
+                "reason": "Clear and specific.",
+                "read_time_minutes": 4,
+                "density": 70,
+                "originality": 65,
+            },
+            "triage_error": None,
+        },
+    )
+
+    response = client.post(
+        "/sources/preview-triage",
+        json={"url": "https://example.com/new-article", "html": "<html><body>Some content</body></html>"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["duplicate"] is False
+    assert body["triage"]["score"] == 72
+    assert body["triage"]["action"] == "worth_reading"
+    # Preview must never create a library directory.
+    library_dir = tmp_path / "library"
+    assert not library_dir.exists() or len(list(library_dir.iterdir())) == 0
+
+
+def test_preview_triage_extraction_provider_timeout_returns_504(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    (tmp_path / "config.json").write_text('{"strategy": "api-key", "provider": "anthropic", "api_key": "fake"}')
+
+    def _raise_timeout(html, url, data_root):
+        raise ProviderTimeoutError("provider timed out")
+
+    monkeypatch.setattr("app.routers.sources.extract_content", _raise_timeout)
+
+    response = client.post(
+        "/sources/preview-triage",
+        json={"url": "https://example.com/slow", "html": "<html><body>hi</body></html>"},
+    )
+
+    assert response.status_code == 504
+    assert response.json()["error_type"] == "timeout"
+
+
+def test_preview_triage_triage_failure_returns_502(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    (tmp_path / "config.json").write_text('{"strategy": "api-key", "provider": "anthropic", "api_key": "fake"}')
+    monkeypatch.setattr("app.routers.sources.extract_content", lambda html, url, data_root: "Extracted body")
+    monkeypatch.setattr(
+        "app.routers.sources.run_triage",
+        lambda state: {"triage": None, "triage_error": "model returned invalid JSON"},
+    )
+
+    response = client.post(
+        "/sources/preview-triage",
+        json={"url": "https://example.com/bad-response", "html": "<html><body>hi</body></html>"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error_type"] == "error"
+
+
+def test_preview_triage_missing_url_or_html_returns_400(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+
+    response = client.post("/sources/preview-triage", json={"title": "No url or html"})
+
+    assert response.status_code == 400

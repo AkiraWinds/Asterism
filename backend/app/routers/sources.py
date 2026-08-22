@@ -9,6 +9,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
 
+from app.analysis.nodes import run_triage
+from app.analysis.state import AnalysisState
 from app.chat.prompts import build_chat_prompt
 from app.concept_graph.pipeline import process_highlight, process_source_concepts, promote_concept
 from app.core.config import get_data_root
@@ -66,6 +68,7 @@ from app.schemas.source import (
     SourceCreateRequest,
     SourceDetailResponse,
     SourceSummaryResponse,
+    TriagePreviewResponse,
 )
 
 router = APIRouter(prefix="/sources", tags=["sources"])
@@ -166,6 +169,62 @@ def create_source_endpoint(payload: SourceCreateRequest):
         id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=None,
         read_at=None,
     )
+
+
+@router.post("/preview-triage", response_model=TriagePreviewResponse)
+def preview_triage_endpoint(payload: SourceCreateRequest):
+    data_root = get_data_root()
+
+    if not payload.url or not payload.html:
+        raise HTTPException(status_code=400, detail="Both 'url' and 'html' are required")
+
+    # Same dedup lookup /sources does, run first so a page already in the
+    # library never pays for extraction or an LLM call just to be told
+    # what the user's about to find out anyway (it's already saved).
+    existing = find_duplicate_source(data_root, url=payload.url)
+    if existing is not None:
+        return TriagePreviewResponse(duplicate=True, id=existing.id, title=existing.title, triage=None)
+
+    title = payload.title or extract_title(payload.html, payload.url)
+
+    # Config errors are a client-fixable setup problem, checked before any
+    # extraction/provider work starts — same separation as analyze_source_endpoint.
+    try:
+        config = load_config(data_root)
+    except ConfigError as exc:
+        return _error_response(400, "config", str(exc))
+
+    try:
+        content = extract_content(payload.html, payload.url, data_root)
+    except ConfigError as exc:
+        return _error_response(400, "config", str(exc))
+    except ProviderMissingError as exc:
+        return _error_response(400, "missing", str(exc))
+    except ProviderConfigError as exc:
+        return _error_response(400, "config", str(exc))
+    except ProviderTimeoutError as exc:
+        logger.warning("Preview-triage extraction provider timeout url=%s", payload.url)
+        return _error_response(504, "timeout", str(exc))
+    except ProviderError as exc:
+        logger.warning("Preview-triage extraction provider error url=%s type=%s", payload.url, type(exc).__name__)
+        return _error_response(502, "error", str(exc))
+
+    state: AnalysisState = {"title": title, "content": content, "config": config, "data_root": data_root}
+    try:
+        result = run_triage(state)
+    except ProviderMissingError as exc:
+        return _error_response(400, "missing", str(exc))
+    except ProviderConfigError as exc:
+        return _error_response(400, "config", str(exc))
+
+    triage = result.get("triage")
+    if triage is None:
+        logger.warning("Preview-triage failed url=%s", payload.url)
+        return _error_response(502, "error", result.get("triage_error") or "Triage failed")
+
+    # Deliberately no write to data_root anywhere above — this endpoint is a
+    # preview: no meta.json, no source directory, nothing persisted.
+    return TriagePreviewResponse(duplicate=False, triage=triage)
 
 
 @router.get("", response_model=list[SourceSummaryResponse])
