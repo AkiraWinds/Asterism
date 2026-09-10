@@ -8,7 +8,7 @@
 // docs/superpowers/specs/2026-08-19-graph-wiki-panel-design.md for why
 // this is a deliberate scope boundary, not an oversight).
 
-import { useEffect, useRef, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -20,6 +20,51 @@ import {
   getWikiPageByConceptId,
   getWikiPageBySlug,
 } from "@/lib/api";
+
+// Wiki body markdown (render_related_section / render_index in
+// backend/app/wiki/render.py) links to other wiki pages with a relative
+// "./{slug}.md"-style href — meaningful when browsing the raw files on
+// disk, but this app renders that same markdown inside a Next.js page, so
+// a plain <a> would try to navigate to a route that doesn't exist (404).
+// Extracts the slug so callers can intercept the click instead of letting
+// the browser navigate — returns null for any other href (e.g. the
+// "## Sources" section's absolute /sources/{id} links, which ARE real
+// routes and should navigate normally).
+function extractRelativeWikiSlug(href?: string): string | null {
+  if (!href) return null;
+  const match = href.match(/^\.?\/?([\w-]+)\.md$/);
+  return match ? match[1] : null;
+}
+
+// Shared `a` renderer for ReactMarkdown: relative wiki-page links call
+// `onWikiLinkClick` instead of navigating; everything else (the /sources/
+// links, or any external link) renders as a normal anchor.
+function makeWikiLinkComponents(onWikiLinkClick: (slug: string, term: string) => void) {
+  return {
+    a: ({ href, children }: { href?: string; children?: ReactNode }) => {
+      const slug = extractRelativeWikiSlug(href);
+      if (slug) {
+        return (
+          <a
+            href={href}
+            onClick={(e) => {
+              e.preventDefault();
+              onWikiLinkClick(slug, typeof children === "string" ? children : slug);
+            }}
+            className="cursor-pointer text-accent hover:underline"
+          >
+            {children}
+          </a>
+        );
+      }
+      return (
+        <a href={href} className="text-accent hover:underline">
+          {children}
+        </a>
+      );
+    },
+  };
+}
 
 const MIN_PROVENANCE_COUNT = 3; // mirrors backend/app/wiki/selection.py's threshold, for the explanatory copy below
 // Client-side truncation threshold for the source-preview body (spec:
@@ -44,10 +89,6 @@ export function GraphNodePanel({ node }: { node: GraphViewNode | null }) {
   // — it's rendered as a dismissible banner alongside the back button
   // instead of replacing the panel (see openAspect below).
   const [aspectError, setAspectError] = useState<string | null>(null);
-  // Tracks the slug of the most recently clicked aspect so a late-resolving
-  // fetch for an aspect the user has already moved on from can be dropped
-  // instead of clobbering state (see openAspect below).
-  const latestAspectSlug = useRef<string | null>(null);
   // Preview state for source nodes — populated by the effect below,
   // rendered by the kind === "source" branch further down.
   const [sourcePreview, setSourcePreview] = useState<SourcePreview | null>(null);
@@ -62,7 +103,6 @@ export function GraphNodePanel({ node }: { node: GraphViewNode | null }) {
     let stale = false;
     setActiveAspect(null);
     setAspectError(null);
-    latestAspectSlug.current = null;
     setPageError(null);
     // Only concept nodes resolve to a wiki page via concept id — source and
     // wiki nodes are handled by their own effect/branch below.
@@ -112,15 +152,21 @@ export function GraphNodePanel({ node }: { node: GraphViewNode | null }) {
     };
   }, [node]);
 
+  // Deliberately ref-free (a prior version tracked the most-recently-
+  // clicked slug in a ref to drop a stale response — dropped because
+  // passing a ref-closing function into ReactMarkdown's `components` prop,
+  // needed below to intercept in-body wiki links, trips the
+  // react-hooks/refs rule: it can't prove the ref is read only from an
+  // event handler and not during render). Two aspect/related-link clicks
+  // racing — click one, then another before the first resolves — could
+  // show the first one's content last if it resolves second; an acceptable
+  // rare edge case here, same tradeoff DirectWikiNodeView's openLinkedPage
+  // below makes.
   function openAspect(aspect: WikiPageAspect) {
-    latestAspectSlug.current = aspect.slug;
     setAspectLoading(true);
     setAspectError(null);
     getWikiPageBySlug(aspect.slug)
       .then((result) => {
-        // Drop this response if the user has since clicked a different
-        // aspect (or the node/effect above reset the tracked slug).
-        if (latestAspectSlug.current !== aspect.slug) return;
         if (result === null) {
           // 404 means "this aspect page doesn't exist (any more)" — distinct
           // from "no aspect clicked yet", which also reads as `null`. Surface
@@ -132,14 +178,10 @@ export function GraphNodePanel({ node }: { node: GraphViewNode | null }) {
         setActiveAspect(result);
       })
       .catch((err) => {
-        if (latestAspectSlug.current !== aspect.slug) return;
         setAspectError(err instanceof Error ? err.message : "Failed to load aspect page");
         setActiveAspect(null);
       })
-      .finally(() => {
-        if (latestAspectSlug.current !== aspect.slug) return;
-        setAspectLoading(false);
-      });
+      .finally(() => setAspectLoading(false));
   }
 
   if (node === null) {
@@ -243,7 +285,17 @@ export function GraphNodePanel({ node }: { node: GraphViewNode | null }) {
             <p className="mt-1 text-xs text-muted-foreground">Updated {shown.updated_at.slice(0, 10)}</p>
           )}
           <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none mt-4 rounded-lg border border-border bg-card p-5">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{shown.body}</ReactMarkdown>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              // "Related concepts" links (render_related_section) point at
+              // another concept's own wiki page by slug — reuse the exact
+              // same fetch-and-show-inline flow the Aspects list already
+              // uses below, rather than letting the browser try to
+              // navigate a relative ./slug.md href that has no route.
+              components={makeWikiLinkComponents((slug, term) => openAspect({ slug, term }))}
+            >
+              {shown.body}
+            </ReactMarkdown>
           </div>
           {!activeAspect && page && page.aspects.length > 0 && (
             <div className="mt-4">
@@ -277,9 +329,19 @@ function DirectWikiNodeView({ slug, term }: { slug: string; term: string }) {
   const [page, setPage] = useState<WikiPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // A "Related concepts" link inside this page's own body can point at yet
+  // another wiki page — swap it in here rather than trying to navigate, the
+  // same idea as GraphNodePanel's activeAspect above, just scoped locally
+  // since a directly-clicked wiki node has no separate "overview" to return
+  // to other than the page it originally loaded.
+  const [linkedPage, setLinkedPage] = useState<WikiPage | null>(null);
+  const [linkedLoading, setLinkedLoading] = useState(false);
+  const [linkedError, setLinkedError] = useState<string | null>(null);
 
   useEffect(() => {
     let stale = false;
+    setLinkedPage(null);
+    setLinkedError(null);
     getWikiPageBySlug(slug)
       .then((result) => {
         if (!stale) setPage(result);
@@ -295,19 +357,66 @@ function DirectWikiNodeView({ slug, term }: { slug: string; term: string }) {
     };
   }, [slug]);
 
+  // Deliberately ref-free (unlike openAspect above, which guards against a
+  // stale response with a ref): two related-link clicks racing here — click
+  // link A, then link B before A resolves — could show A's content last if
+  // it resolves after B. An acceptable rare edge case for this secondary,
+  // already-nested navigation path; not worth the extra state for.
+  function openLinkedPage(linkedSlug: string) {
+    setLinkedLoading(true);
+    setLinkedError(null);
+    getWikiPageBySlug(linkedSlug)
+      .then((result) => {
+        if (result === null) {
+          setLinkedError("That page is no longer available.");
+          setLinkedPage(null);
+          return;
+        }
+        setLinkedPage(result);
+      })
+      .catch((err) => {
+        setLinkedError(err instanceof Error ? err.message : "Failed to load page");
+        setLinkedPage(null);
+      })
+      .finally(() => setLinkedLoading(false));
+  }
+
   if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (error) return <p className="text-sm text-destructive">Couldn&apos;t load the wiki page: {error}</p>;
   if (page === null) return <p className="text-sm text-muted-foreground">This wiki page is no longer available.</p>;
 
+  const shown = linkedPage ?? page;
+
   return (
     <div>
-      <h2 className="font-heading text-xl font-bold text-foreground">{term}</h2>
-      {page.updated_at && (
-        <p className="mt-1 text-xs text-muted-foreground">Updated {page.updated_at.slice(0, 10)}</p>
+      {linkedPage && (
+        <button
+          type="button"
+          onClick={() => {
+            setLinkedPage(null);
+            setLinkedError(null);
+          }}
+          className="mb-3 text-sm text-muted-foreground hover:text-foreground hover:underline"
+        >
+          ← Back to {term}
+        </button>
       )}
-      <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none mt-4 rounded-lg border border-border bg-card p-5">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{page.body}</ReactMarkdown>
-      </div>
+      {linkedError && <p className="mb-3 text-sm text-destructive">{linkedError}</p>}
+      {linkedLoading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <>
+          <h2 className="font-heading text-xl font-bold text-foreground">{shown.term}</h2>
+          {shown.updated_at && (
+            <p className="mt-1 text-xs text-muted-foreground">Updated {shown.updated_at.slice(0, 10)}</p>
+          )}
+          <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none mt-4 rounded-lg border border-border bg-card p-5">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={makeWikiLinkComponents(openLinkedPage)}>
+              {shown.body}
+            </ReactMarkdown>
+          </div>
+        </>
+      )}
     </div>
   );
 }
