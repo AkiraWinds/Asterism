@@ -79,9 +79,14 @@ def test_render_sources_section_shows_quote_when_present():
         {"source_id": "s_1", "label": "Article A", "quote": "an exact quote"},
         {"source_id": "s_2", "label": "Article B", "quote": None},
     ])
-    assert '- Article A — "an exact quote"' in section
-    assert "- Article B" in section
-    assert "Article B —" not in section
+    assert '- [Article A](/sources/s_1) — "an exact quote"' in section
+    assert "- [Article B](/sources/s_2)" in section
+    assert "Article B](/sources/s_2) —" not in section
+
+
+def test_render_sources_section_links_to_source_route():
+    section = render_sources_section([{"source_id": "abc123", "label": "Some Title", "quote": None}])
+    assert "[Some Title](/sources/abc123)" in section
 
 
 def test_render_index_lists_pages_and_omits_attention_when_empty():

@@ -2,9 +2,17 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.graph_store.store import (
+    graph_db_path,
+    init_db,
+    insert_concept,
+    link_concept_highlight,
+    link_concept_source,
+)
 from app.main import app
 from app.providers.base import ProviderError, ProviderTimeoutError
 from app.repositories.config_repository import ConfigError
+from app.wiki.store_reader import get_concept_provenance
 
 client = TestClient(app)
 
@@ -92,6 +100,29 @@ def test_delete_missing_source_returns_404(tmp_path: Path, monkeypatch):
 
     response = client.delete("/sources/does-not-exist")
     assert response.status_code == 404
+
+
+def test_delete_source_cleans_up_graph_provenance(tmp_path: Path, monkeypatch):
+    # Regression test: deleting a source used to leave concept_sources/
+    # concept_highlights rows pointing at the now-gone source_id, which made
+    # a wiki page's "Sources" citation fall back to a bare hex id with no
+    # label (found live, 2026-09-10). Deleting the source must clean up both
+    # provenance tables too.
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+
+    created = client.post("/sources", json={"title": "To Delete", "content": "Body"}).json()
+    source_id = created["id"]
+
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    insert_concept(db_path, "c_1", "Term", "def", [0.1], False, "2026-09-10T00:00:00Z")
+    link_concept_source(db_path, "c_1", source_id)
+    link_concept_highlight(db_path, "c_1", source_id, "h_1")
+
+    delete_response = client.delete(f"/sources/{source_id}")
+    assert delete_response.status_code == 204
+
+    assert get_concept_provenance(db_path, "c_1") == []
 
 
 def test_create_source_from_url_success(tmp_path: Path, monkeypatch):
