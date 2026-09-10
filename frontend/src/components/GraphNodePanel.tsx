@@ -1,19 +1,29 @@
 "use client";
 
-// Shows the already-compiled wiki page for whichever concept is selected in
-// the graph panel (ConceptGraphView). Purely a reader — no compile-trigger
-// UI here; wiki freshness is a backend/scheduling concern handled
-// elsewhere (see docs/superpowers/specs/2026-08-19-graph-wiki-panel-design.md
-// for why this is a deliberate scope boundary, not an oversight).
+// Detail panel for whichever node is selected in the graph panel
+// (ConceptGraphView) — a concept, a source, or a wiki/aspect page, each with
+// its own render branch below. For concept nodes it shows the already-
+// compiled wiki page; purely a reader — no compile-trigger UI here, wiki
+// freshness is a backend/scheduling concern handled elsewhere (see
+// docs/superpowers/specs/2026-08-19-graph-wiki-panel-design.md for why
+// this is a deliberate scope boundary, not an oversight).
 
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { GraphConceptNode, WikiPage, WikiPageAspect, getWikiPageByConceptId, getWikiPageBySlug } from "@/lib/api";
+import {
+  GraphViewNode,
+  SourcePreview,
+  WikiPage,
+  WikiPageAspect,
+  getSourcePreview,
+  getWikiPageByConceptId,
+  getWikiPageBySlug,
+} from "@/lib/api";
 
 const MIN_PROVENANCE_COUNT = 3; // mirrors backend/app/wiki/selection.py's threshold, for the explanatory copy below
 
-export function WikiPagePanel({ node }: { node: GraphConceptNode | null }) {
+export function GraphNodePanel({ node }: { node: GraphViewNode | null }) {
   const [page, setPage] = useState<WikiPage | null>(null);
   const [pageLoading, setPageLoading] = useState(false);
   // Error from the initial per-node fetch — replaces the whole panel, since
@@ -32,6 +42,11 @@ export function WikiPagePanel({ node }: { node: GraphConceptNode | null }) {
   // fetch for an aspect the user has already moved on from can be dropped
   // instead of clobbering state (see openAspect below).
   const latestAspectSlug = useRef<string | null>(null);
+  // Preview state for source nodes — populated by the effect below,
+  // rendered by the kind === "source" branch further down.
+  const [sourcePreview, setSourcePreview] = useState<SourcePreview | null>(null);
+  const [sourcePreviewLoading, setSourcePreviewLoading] = useState(false);
+  const [sourcePreviewError, setSourcePreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     let stale = false;
@@ -39,7 +54,9 @@ export function WikiPagePanel({ node }: { node: GraphConceptNode | null }) {
     setAspectError(null);
     latestAspectSlug.current = null;
     setPageError(null);
-    if (node === null) {
+    // Only concept nodes resolve to a wiki page via concept id — source and
+    // wiki nodes are handled by their own effect/branch below.
+    if (node === null || node.kind !== "concept") {
       setPage(null);
       return;
     }
@@ -56,6 +73,29 @@ export function WikiPagePanel({ node }: { node: GraphConceptNode | null }) {
       });
     // Cleanup runs when `node` changes again (or the component unmounts)
     // before this fetch resolves — mark it stale so its callbacks no-op.
+    return () => {
+      stale = true;
+    };
+  }, [node]);
+
+  useEffect(() => {
+    let stale = false;
+    setSourcePreview(null);
+    setSourcePreviewError(null);
+    if (node === null || node.kind !== "source") return;
+    // node.id is "src_<source_id>" (see backend/app/graph_store/view.py) — strip the prefix.
+    const sourceId = node.id.replace(/^src_/, "");
+    setSourcePreviewLoading(true);
+    getSourcePreview(sourceId)
+      .then((result) => {
+        if (!stale) setSourcePreview(result);
+      })
+      .catch((err) => {
+        if (!stale) setSourcePreviewError(err instanceof Error ? err.message : "Failed to load source preview");
+      })
+      .finally(() => {
+        if (!stale) setSourcePreviewLoading(false);
+      });
     return () => {
       stale = true;
     };
@@ -93,6 +133,38 @@ export function WikiPagePanel({ node }: { node: GraphConceptNode | null }) {
 
   if (node === null) {
     return <p className="text-sm text-muted-foreground">Select a concept to read its page.</p>;
+  }
+
+  // A wiki/aspect node clicked directly (not reached via a concept's aspect
+  // list) carries a slug, not a concept id — fetch it by slug instead.
+  if (node.kind === "wiki") {
+    return <DirectWikiNodeView slug={node.id.replace(/^wiki:/, "")} term={node.term} />;
+  }
+
+  if (node.kind === "source") {
+    const sourceId = node.id.replace(/^src_/, "");
+    if (sourcePreviewLoading) {
+      return <p className="text-sm text-muted-foreground">Loading…</p>;
+    }
+    if (sourcePreviewError) {
+      return <p className="text-sm text-destructive">Couldn&apos;t load this source: {sourcePreviewError}</p>;
+    }
+    return (
+      <div>
+        <h2 className="font-heading text-xl font-bold text-foreground">{node.term}</h2>
+        <a
+          href={`/sources/${sourceId}`}
+          className="mt-1 inline-block text-sm text-accent hover:underline"
+        >
+          Open source →
+        </a>
+        {sourcePreview && (
+          <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none mt-4 rounded-lg border border-border bg-card p-5">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{sourcePreview.preview_text}</ReactMarkdown>
+          </div>
+        )}
+      </div>
+    );
   }
 
   if (pageLoading) {
@@ -167,6 +239,49 @@ export function WikiPagePanel({ node }: { node: GraphConceptNode | null }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// Renders a wiki/aspect node that was clicked directly in the graph (rather
+// than reached via a concept's aspect list) — fetched by slug since a
+// directly-clicked node's id carries the slug, not a concept id. Mirrors the
+// fetch-by-slug pattern in openAspect above.
+function DirectWikiNodeView({ slug, term }: { slug: string; term: string }) {
+  const [page, setPage] = useState<WikiPage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let stale = false;
+    getWikiPageBySlug(slug)
+      .then((result) => {
+        if (!stale) setPage(result);
+      })
+      .catch((err) => {
+        if (!stale) setError(err instanceof Error ? err.message : "Failed to load wiki page");
+      })
+      .finally(() => {
+        if (!stale) setLoading(false);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [slug]);
+
+  if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (error) return <p className="text-sm text-destructive">Couldn&apos;t load the wiki page: {error}</p>;
+  if (page === null) return <p className="text-sm text-muted-foreground">This wiki page is no longer available.</p>;
+
+  return (
+    <div>
+      <h2 className="font-heading text-xl font-bold text-foreground">{term}</h2>
+      {page.updated_at && (
+        <p className="mt-1 text-xs text-muted-foreground">Updated {page.updated_at.slice(0, 10)}</p>
+      )}
+      <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none mt-4 rounded-lg border border-border bg-card p-5">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{page.body}</ReactMarkdown>
+      </div>
     </div>
   );
 }
