@@ -109,17 +109,20 @@ def render_related_section(
 
 
 def render_sources_section(citations: list[dict]) -> str:
-    """Each citation's label links to /sources/{source_id} — an absolute
-    app-root path (not the relative ./{slug}.md style render_related_section
-    uses below, which only makes sense for the concept's own wiki pages).
-    The frontend renders this markdown inside a Next.js app, where
-    /sources/{id} is a real route it navigates directly; found live
-    (2026-09-10) that citations previously rendered as unlinked plain text."""
+    """Each citation's label links to /?source={source_id}. NOT /sources/
+    {source_id} — that route doesn't exist in the frontend at all; source
+    selection there is pure client-side state on the unified workspace page
+    (see frontend/src/app/page.tsx's file header), which reads this query
+    param once on mount to deep-link into it. (Corrected live, 2026-09-10:
+    an earlier version of this function linked to /sources/{id}, which
+    404ed — that route was removed from the frontend before this function
+    was written, but nothing here had been checked against the frontend's
+    actual routes at the time.)"""
     if not citations:
         return ""
     lines = ["## Sources", ""]
     for citation in citations:
-        label = f"[{citation['label']}](/sources/{citation['source_id']})"
+        label = f"[{citation['label']}](/?source={citation['source_id']})"
         if citation["quote"] is not None:
             lines.append(f"- {label} — \"{citation['quote']}\"")
         else:

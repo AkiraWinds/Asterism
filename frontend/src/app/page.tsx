@@ -19,6 +19,17 @@ export default function WorkspacePage() {
 
   useEffect(() => {
     listSources().then(setSources);
+    // Deep-link support: since source selection is pure client state (no
+    // /sources/[id] route exists — see the file header comment), a link
+    // pointing here with "?source=<id>" (the graph view's "Open source →"
+    // and wiki-page source citations both use this) needs something to
+    // read it on load. Read-once on mount, plain window.location rather
+    // than next/navigation's useSearchParams, since this page is otherwise
+    // statically rendered and useSearchParams would force it into a
+    // Suspense boundary for no benefit here — nothing needs to react to
+    // the URL changing after mount, only its initial value.
+    const sourceParam = new URLSearchParams(window.location.search).get("source");
+    if (sourceParam) setSelectedId(sourceParam);
   }, []);
 
   function handleSelect(id: string) {

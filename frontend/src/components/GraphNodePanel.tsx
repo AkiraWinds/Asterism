@@ -28,8 +28,8 @@ import {
 // a plain <a> would try to navigate to a route that doesn't exist (404).
 // Extracts the slug so callers can intercept the click instead of letting
 // the browser navigate — returns null for any other href (e.g. the
-// "## Sources" section's absolute /sources/{id} links, which ARE real
-// routes and should navigate normally).
+// "## Sources" section's /?source={id} deep links, which ARE a real,
+// working target and should navigate normally).
 function extractRelativeWikiSlug(href?: string): string | null {
   if (!href) return null;
   const match = href.match(/^\.?\/?([\w-]+)\.md$/);
@@ -37,8 +37,8 @@ function extractRelativeWikiSlug(href?: string): string | null {
 }
 
 // Shared `a` renderer for ReactMarkdown: relative wiki-page links call
-// `onWikiLinkClick` instead of navigating; everything else (the /sources/
-// links, or any external link) renders as a normal anchor.
+// `onWikiLinkClick` instead of navigating; everything else (the /?source=
+// deep links, or any external link) renders as a normal anchor.
 function makeWikiLinkComponents(onWikiLinkClick: (slug: string, term: string) => void) {
   return {
     a: ({ href, children }: { href?: string; children?: ReactNode }) => {
@@ -205,8 +205,11 @@ export function GraphNodePanel({ node }: { node: GraphViewNode | null }) {
     return (
       <div>
         <h2 className="font-heading text-xl font-bold text-foreground">{node.term}</h2>
+        {/* NOT /sources/{id} — that route doesn't exist; source selection is
+            client-side state on the unified workspace page (frontend/src/app/page.tsx),
+            which reads this query param once on mount to deep-link into it. */}
         <a
-          href={`/sources/${sourceId}`}
+          href={`/?source=${sourceId}`}
           className="mt-1 inline-block text-sm text-accent hover:underline"
         >
           Open source →
