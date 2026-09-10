@@ -109,14 +109,21 @@ def render_related_section(
 
 
 def render_sources_section(citations: list[dict]) -> str:
+    """Each citation's label links to /sources/{source_id} — an absolute
+    app-root path (not the relative ./{slug}.md style render_related_section
+    uses below, which only makes sense for the concept's own wiki pages).
+    The frontend renders this markdown inside a Next.js app, where
+    /sources/{id} is a real route it navigates directly; found live
+    (2026-09-10) that citations previously rendered as unlinked plain text."""
     if not citations:
         return ""
     lines = ["## Sources", ""]
     for citation in citations:
+        label = f"[{citation['label']}](/sources/{citation['source_id']})"
         if citation["quote"] is not None:
-            lines.append(f"- {citation['label']} — \"{citation['quote']}\"")
+            lines.append(f"- {label} — \"{citation['quote']}\"")
         else:
-            lines.append(f"- {citation['label']}")
+            lines.append(f"- {label}")
     return "\n".join(lines) + "\n"
 
 
