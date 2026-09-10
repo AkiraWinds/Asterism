@@ -238,3 +238,26 @@ def test_get_wiki_page_by_slug_returns_none_when_file_missing(tmp_path: Path):
     wiki_dir.mkdir()
 
     assert get_wiki_page_by_slug(wiki_dir, "nonexistent") is None
+
+
+# resolve_aspects tests (public API, Task 3)
+from app.wiki.store_reader import resolve_aspects
+
+
+def test_resolve_aspects_is_publicly_importable(tmp_path):
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+    (wiki_dir / "rag-evaluation.md").write_text(
+        '---\nconcept_id: "c_1"\nterm: "Evaluation"\naspect_of: "rag"\n---\n\nbody\n'
+    )
+
+    result = resolve_aspects(wiki_dir, ["rag-evaluation"])
+
+    assert result == [{"slug": "rag-evaluation", "term": "Evaluation"}]
+
+
+def test_resolve_aspects_skips_missing_file(tmp_path):
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+
+    assert resolve_aspects(wiki_dir, ["does-not-exist"]) == []
