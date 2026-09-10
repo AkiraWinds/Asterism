@@ -17,13 +17,12 @@ from app.graph_store.store import (
     graph_db_path,
     init_db,
     insert_edge,
-    list_concepts,
-    list_edges,
     list_review_queue,
     repoint_concept_highlights,
     repoint_edges,
 )
-from app.schemas.graph import ConceptNode, Edge, GraphResponse, ReviewQueueEntry, ReviewQueueResolveRequest
+from app.graph_store.view import build_graph_response
+from app.schemas.graph import GraphResponse, ReviewQueueEntry, ReviewQueueResolveRequest
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
@@ -38,25 +37,9 @@ def _ensure_db():
 
 @router.get("", response_model=GraphResponse)
 def get_graph_endpoint() -> GraphResponse:
+    data_root = get_data_root()
     db_path = _ensure_db()
-    nodes = [
-        ConceptNode(
-            id=c["id"], term=c["term"], definition=c["definition"],
-            self_relevant=bool(c["self_relevant"]), golden=bool(c["golden"]),
-        )
-        for c in list_concepts(db_path)
-    ]
-    node_ids = {n.id for n in nodes}
-    # Defensive filter: only return edges whose endpoints both still exist as
-    # nodes. This is cheap insurance against any dangling edge (e.g. a merge
-    # path that failed to repoint edges) reaching the client — an edge
-    # pointing at a nonexistent node crashes react-force-graph-2d.
-    edges = [
-        Edge(id=e["id"], from_id=e["from_id"], to_id=e["to_id"], type=e["type"], summary=e["summary"])
-        for e in list_edges(db_path)
-        if e["from_id"] in node_ids and e["to_id"] in node_ids
-    ]
-    return GraphResponse(nodes=nodes, edges=edges)
+    return build_graph_response(data_root, db_path)
 
 
 @router.get("/review-queue", response_model=list[ReviewQueueEntry])
