@@ -22,6 +22,12 @@ import {
 } from "@/lib/api";
 
 const MIN_PROVENANCE_COUNT = 3; // mirrors backend/app/wiki/selection.py's threshold, for the explanatory copy below
+// Client-side truncation threshold for the source-preview body (spec:
+// "truncated with a 'show more' toggle if long"). The backend never
+// truncates (see get_source_preview_endpoint) since truncating server-side
+// would lose the text the toggle needs to expand into — this is purely a
+// display concern, applied to both source types (html digests can be long too).
+const PREVIEW_TRUNCATE_LENGTH = 500;
 
 export function GraphNodePanel({ node }: { node: GraphViewNode | null }) {
   const [page, setPage] = useState<WikiPage | null>(null);
@@ -47,6 +53,10 @@ export function GraphNodePanel({ node }: { node: GraphViewNode | null }) {
   const [sourcePreview, setSourcePreview] = useState<SourcePreview | null>(null);
   const [sourcePreviewLoading, setSourcePreviewLoading] = useState(false);
   const [sourcePreviewError, setSourcePreviewError] = useState<string | null>(null);
+  // Whether the truncated preview body is expanded to its full text — reset
+  // to collapsed whenever the selected node changes (see the fetch effect
+  // below, same convention as activeAspect/aspectError's reset).
+  const [sourcePreviewExpanded, setSourcePreviewExpanded] = useState(false);
 
   useEffect(() => {
     let stale = false;
@@ -82,6 +92,7 @@ export function GraphNodePanel({ node }: { node: GraphViewNode | null }) {
     let stale = false;
     setSourcePreview(null);
     setSourcePreviewError(null);
+    setSourcePreviewExpanded(false);
     if (node === null || node.kind !== "source") return;
     // node.id is "src_<source_id>" (see backend/app/graph_store/view.py) — strip the prefix.
     const sourceId = node.id.replace(/^src_/, "");
@@ -158,10 +169,25 @@ export function GraphNodePanel({ node }: { node: GraphViewNode | null }) {
         >
           Open source →
         </a>
-        {sourcePreview && (
-          <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none mt-4 rounded-lg border border-border bg-card p-5">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{sourcePreview.preview_text}</ReactMarkdown>
-          </div>
+        {sourcePreview && sourcePreview.id === sourceId && (
+          <>
+            <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none mt-4 rounded-lg border border-border bg-card p-5">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {sourcePreview.preview_text.length > PREVIEW_TRUNCATE_LENGTH && !sourcePreviewExpanded
+                  ? `${sourcePreview.preview_text.slice(0, PREVIEW_TRUNCATE_LENGTH)}…`
+                  : sourcePreview.preview_text}
+              </ReactMarkdown>
+            </div>
+            {sourcePreview.preview_text.length > PREVIEW_TRUNCATE_LENGTH && (
+              <button
+                type="button"
+                onClick={() => setSourcePreviewExpanded((expanded) => !expanded)}
+                className="mt-2 text-sm text-accent hover:underline"
+              >
+                {sourcePreviewExpanded ? "Show less" : "Show more"}
+              </button>
+            )}
+          </>
         )}
       </div>
     );

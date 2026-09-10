@@ -8,6 +8,38 @@ import { getGraph, GraphData } from "@/lib/api";
 // loaded client-side only (Next.js SSR would otherwise crash on import).
 const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), { ssr: false });
 
+// First-pass palette for the 4 node kinds and 4 edge kinds — extends the
+// app's existing "Soft Lavender" tokens (frontend/src/app/globals.css) with
+// new hues for source/wiki, since the canvas can't consume CSS variables
+// (see the existing isDark-driven linkColor below for why this is
+// hardcoded rather than a CSS class). Module-scope (not component-local) so
+// these aren't re-created on every render; isDark is passed in explicitly
+// at each call site since they can no longer close over component state.
+const NODE_COLORS: Record<string, { light: string; dark: string }> = {
+  concept: { light: "#8B5CF6", dark: "#A78BFA" }, // app-accent
+  source: { light: "#0D9488", dark: "#2DD4BF" }, // teal
+  wiki: { light: "#DB2777", dark: "#F472B6" }, // rose (overview)
+  wikiAspect: { light: "#F0ABFC", dark: "#F5D0FE" }, // lighter rose (aspect — dimmer variant)
+};
+
+const EDGE_COLORS: Record<string, { light: string; dark: string }> = {
+  concept_relation: { light: "#71717A", dark: "#A8A2B8" }, // unchanged from today's single edge color
+  source_link: { light: "#0D9488", dark: "#2DD4BF" },
+  wiki_link: { light: "#DB2777", dark: "#F472B6" },
+  aspect_link: { light: "#F0ABFC", dark: "#F5D0FE" },
+};
+
+function nodeColorFor(node: { kind: string; is_aspect: boolean }, dark: boolean): string {
+  const key = node.kind === "wiki" && node.is_aspect ? "wikiAspect" : node.kind;
+  const entry = NODE_COLORS[key] ?? NODE_COLORS.concept;
+  return dark ? entry.dark : entry.light;
+}
+
+function edgeColorFor(kind: string, dark: boolean): string {
+  const entry = EDGE_COLORS[kind] ?? EDGE_COLORS.concept_relation;
+  return dark ? entry.dark : entry.light;
+}
+
 export function ConceptGraphView({
   onSelectNode,
 }: {
@@ -18,7 +50,7 @@ export function ConceptGraphView({
   // ForceGraph2D defaults to window.innerWidth/innerHeight with no
   // auto-resize, which overflows this component's grid column and — since
   // the wrapper is `position: relative` — steals pointer events from the
-  // sibling WikiPagePanel. Measure the wrapper ourselves and pass explicit
+  // sibling GraphNodePanel. Measure the wrapper ourselves and pass explicit
   // dimensions instead.
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -30,25 +62,6 @@ export function ConceptGraphView({
   // between, is the canvas-side equivalent of what every other component
   // gets for free through CSS variables.
   const [isDark, setIsDark] = useState(false);
-
-  // First-pass palette for the 4 node kinds and 4 edge kinds — extends the
-  // app's existing "Soft Lavender" tokens (frontend/src/app/globals.css) with
-  // new hues for source/wiki, since the canvas can't consume CSS variables
-  // (see the existing isDark-driven linkColor below for why this is
-  // hardcoded rather than a CSS class).
-  const NODE_COLORS: Record<string, { light: string; dark: string }> = {
-    concept: { light: "#8B5CF6", dark: "#A78BFA" }, // app-accent
-    source: { light: "#0D9488", dark: "#2DD4BF" }, // teal
-    wiki: { light: "#DB2777", dark: "#F472B6" }, // rose (overview)
-    wikiAspect: { light: "#F0ABFC", dark: "#F5D0FE" }, // lighter rose (aspect — dimmer variant)
-  };
-
-  const EDGE_COLORS: Record<string, { light: string; dark: string }> = {
-    concept_relation: { light: "#71717A", dark: "#A8A2B8" }, // unchanged from today's single edge color
-    source_link: { light: "#0D9488", dark: "#2DD4BF" },
-    wiki_link: { light: "#DB2777", dark: "#F472B6" },
-    aspect_link: { light: "#F0ABFC", dark: "#F5D0FE" },
-  };
 
   useEffect(() => {
     const mql = window.matchMedia("(prefers-color-scheme: dark)");
@@ -102,17 +115,6 @@ export function ConceptGraphView({
         : null,
     [graph]
   );
-
-  function nodeColorFor(node: { kind: string; is_aspect: boolean }, dark: boolean): string {
-    const key = node.kind === "wiki" && node.is_aspect ? "wikiAspect" : node.kind;
-    const entry = NODE_COLORS[key] ?? NODE_COLORS.concept;
-    return dark ? entry.dark : entry.light;
-  }
-
-  function edgeColorFor(kind: string, dark: boolean): string {
-    const entry = EDGE_COLORS[kind] ?? EDGE_COLORS.concept_relation;
-    return dark ? entry.dark : entry.light;
-  }
 
   return (
     <div ref={containerRef} className="relative h-[560px] w-full overflow-hidden rounded-lg border border-border">
@@ -178,6 +180,34 @@ export function ConceptGraphView({
               style={{ background: nodeColorFor({ kind: "wiki", is_aspect: true }, isDark) }}
             />{" "}
             Wiki aspect
+          </div>
+          <div className="flex items-center gap-1">
+            <span
+              className="inline-block h-0.5 w-3"
+              style={{ background: edgeColorFor("concept_relation", isDark) }}
+            />{" "}
+            Concept relation
+          </div>
+          <div className="flex items-center gap-1">
+            <span
+              className="inline-block h-0.5 w-3"
+              style={{ background: edgeColorFor("source_link", isDark) }}
+            />{" "}
+            Source link
+          </div>
+          <div className="flex items-center gap-1">
+            <span
+              className="inline-block h-0.5 w-3"
+              style={{ background: edgeColorFor("wiki_link", isDark) }}
+            />{" "}
+            Wiki link
+          </div>
+          <div className="flex items-center gap-1">
+            <span
+              className="inline-block h-0.5 w-3"
+              style={{ background: edgeColorFor("aspect_link", isDark) }}
+            />{" "}
+            Aspect link
           </div>
         </div>
       )}
