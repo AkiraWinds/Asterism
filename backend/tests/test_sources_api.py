@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -359,3 +360,65 @@ def test_preview_triage_exercises_real_run_triage_against_a_fake_provider(tmp_pa
     assert body["duplicate"] is False
     assert body["triage"]["score"] == 55
     assert body["triage"]["action"] == "skim"
+
+
+def test_get_source_preview_returns_digest_summary_for_html_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    create_response = client.post("/sources", json={"title": "An Article", "content": "body text"})
+    source_id = create_response.json()["id"]
+    # Force type=html directly in meta.json (plain-text creation defaults to "text";
+    # this test only needs a source whose type is html, not a real URL fetch).
+    meta_path = tmp_path / "library" / source_id / "meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta["type"] = "html"
+    meta_path.write_text(json.dumps(meta))
+    analysis_path = tmp_path / "library" / source_id / "analysis.json"
+    analysis_path.write_text(json.dumps({
+        "triage": None, "triage_error": None,
+        "digest": {"summary": "A short summary.", "highlights": [], "concepts": [], "structure": []},
+        "digest_error": None, "critique": None, "critique_error": None,
+        "claims": None, "claims_error": None, "connections": [], "analyzed_at": "2026-09-10T00:00:00Z",
+    }))
+
+    response = client.get(f"/sources/{source_id}/preview")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["type"] == "html"
+    assert body["preview_text"] == "A short summary."
+
+
+def test_get_source_preview_returns_fallback_for_unanalyzed_html_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    create_response = client.post("/sources", json={"title": "An Article", "content": "body text"})
+    source_id = create_response.json()["id"]
+    meta_path = tmp_path / "library" / source_id / "meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta["type"] = "html"
+    meta_path.write_text(json.dumps(meta))
+
+    response = client.get(f"/sources/{source_id}/preview")
+
+    assert response.status_code == 200
+    assert response.json()["preview_text"] == "Not analyzed yet."
+
+
+def test_get_source_preview_returns_raw_content_for_text_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    create_response = client.post("/sources", json={"title": "My Note", "content": "note body"})
+    source_id = create_response.json()["id"]
+
+    response = client.get(f"/sources/{source_id}/preview")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["type"] == "text"
+    assert body["preview_text"] == "note body"
+
+
+def test_get_source_preview_404s_for_missing_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+
+    response = client.get("/sources/does-not-exist/preview")
+
+    assert response.status_code == 404
