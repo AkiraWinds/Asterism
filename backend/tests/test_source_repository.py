@@ -20,6 +20,7 @@ from app.repositories.source_repository import (
     append_highlight,
     read_highlights,
     read_source_url,
+    read_source_type,
     update_highlight_note,
     read_feedback,
     find_feedback_entry,
@@ -482,3 +483,15 @@ def test_mark_feedback_promoted_sets_flag_and_timestamp(tmp_path: Path):
 def test_mark_feedback_promoted_returns_none_for_unknown_id(tmp_path: Path):
     record = create_source(tmp_path, title="T", content="C")
     assert mark_feedback_promoted(tmp_path, record.id, "does-not-exist") is None
+
+
+def test_read_source_type_returns_html_for_url_source(tmp_path):
+    source_dir = tmp_path / "library" / "s1"
+    source_dir.mkdir(parents=True)
+    (source_dir / "meta.json").write_text(json.dumps({"id": "s1", "type": "html"}))
+
+    assert read_source_type(tmp_path, "s1") == "html"
+
+
+def test_read_source_type_returns_none_for_missing_source(tmp_path):
+    assert read_source_type(tmp_path, "does-not-exist") is None
