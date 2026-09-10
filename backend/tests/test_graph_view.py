@@ -95,3 +95,60 @@ def test_build_graph_response_skips_provenance_for_deleted_source(tmp_path: Path
 
     assert [n for n in response.nodes if n.kind == "source"] == []
     assert [e for e in response.edges if e.kind == "source_link"] == []
+
+
+def _write_wiki_page(tmp_path: Path, slug: str, concept_id: str, term: str, aspects: list[str] | None = None) -> None:
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir(exist_ok=True)
+    aspects_line = f'\naspects: {json.dumps(aspects)}' if aspects else ""
+    (wiki_dir / f"{slug}.md").write_text(
+        f'---\nconcept_id: {json.dumps(concept_id)}\nterm: {json.dumps(term)}\n'
+        f'updated_at: "2026-09-10T00:00:00Z"\nsource_ids: []{aspects_line}\n---\n\nbody\n'
+    )
+
+
+def _write_aspect_page(tmp_path: Path, slug: str, concept_id: str, term: str, aspect_of: str) -> None:
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir(exist_ok=True)
+    (wiki_dir / f"{slug}.md").write_text(
+        f'---\nconcept_id: {json.dumps(concept_id)}\nterm: {json.dumps(term)}\n'
+        f'aspect_of: {json.dumps(aspect_of)}\nupdated_at: "2026-09-10T00:00:00Z"\nsource_ids: []\n---\n\nbody\n'
+    )
+
+
+def test_build_graph_response_includes_wiki_node_when_page_exists(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-09-10T00:00:00Z")
+    _write_wiki_page(tmp_path, "rag", "c_1", "RAG")
+
+    response = build_graph_response(tmp_path, db_path)
+
+    wiki_nodes = [n for n in response.nodes if n.kind == "wiki"]
+    assert len(wiki_nodes) == 1
+    assert wiki_nodes[0].id == "wiki:rag" and wiki_nodes[0].is_aspect is False
+    wiki_edges = [e for e in response.edges if e.kind == "wiki_link"]
+    assert wiki_edges[0].from_id == "c_1" and wiki_edges[0].to_id == "wiki:rag"
+
+
+def test_build_graph_response_omits_wiki_node_when_no_page_yet(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-09-10T00:00:00Z")
+
+    response = build_graph_response(tmp_path, db_path)
+
+    assert [n for n in response.nodes if n.kind == "wiki"] == []
+
+
+def test_build_graph_response_includes_aspect_nodes_and_edges(tmp_path: Path):
+    db_path = _new_db(tmp_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-09-10T00:00:00Z")
+    _write_wiki_page(tmp_path, "rag", "c_1", "RAG", aspects=["rag-evaluation"])
+    _write_aspect_page(tmp_path, "rag-evaluation", "c_1", "Evaluation", aspect_of="rag")
+
+    response = build_graph_response(tmp_path, db_path)
+
+    aspect_nodes = [n for n in response.nodes if n.is_aspect]
+    assert len(aspect_nodes) == 1
+    assert aspect_nodes[0].id == "wiki:rag-evaluation" and aspect_nodes[0].term == "Evaluation"
+    aspect_edges = [e for e in response.edges if e.kind == "aspect_link"]
+    assert aspect_edges[0].from_id == "wiki:rag" and aspect_edges[0].to_id == "wiki:rag-evaluation"

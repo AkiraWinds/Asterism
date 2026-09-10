@@ -10,7 +10,7 @@ from pathlib import Path
 from app.graph_store.store import list_concepts, list_edges
 from app.repositories.source_repository import list_sources
 from app.schemas.graph import GraphEdge, GraphNode, GraphResponse
-from app.wiki.store_reader import get_concept_provenance
+from app.wiki.store_reader import get_concept_provenance, resolve_aspects, scan_wiki_pages
 
 
 def build_graph_response(data_root: Path, db_path: Path) -> GraphResponse:
@@ -51,6 +51,29 @@ def build_graph_response(data_root: Path, db_path: Path) -> GraphResponse:
             edges.append(GraphEdge(
                 id=f"srclink_{concept['id']}_{source_id}", from_id=concept["id"], to_id=f"src_{source_id}",
                 kind="source_link",
+            ))
+
+    # Wiki/aspect nodes/edges: a concept only has a wiki node once its page
+    # is actually compiled (scan_wiki_pages only returns existing pages).
+    wiki_dir = data_root / "wiki"
+    pages = scan_wiki_pages(wiki_dir)
+    for concept in concepts:
+        page = pages.get(concept["id"])
+        if page is None:
+            continue
+        slug = page["slug"]
+        frontmatter = page["frontmatter"]
+        wiki_node_id = f"wiki:{slug}"
+        nodes.append(GraphNode(id=wiki_node_id, kind="wiki", term=frontmatter.get("term", concept["term"])))
+        edges.append(GraphEdge(
+            id=f"wikilink_{concept['id']}", from_id=concept["id"], to_id=wiki_node_id, kind="wiki_link",
+        ))
+        for aspect in resolve_aspects(wiki_dir, frontmatter.get("aspects", [])):
+            aspect_node_id = f"wiki:{aspect['slug']}"
+            nodes.append(GraphNode(id=aspect_node_id, kind="wiki", term=aspect["term"], is_aspect=True))
+            edges.append(GraphEdge(
+                id=f"aspectlink_{concept['id']}_{aspect['slug']}", from_id=wiki_node_id, to_id=aspect_node_id,
+                kind="aspect_link",
             ))
 
     return GraphResponse(nodes=nodes, edges=edges)
