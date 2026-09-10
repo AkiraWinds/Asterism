@@ -102,7 +102,15 @@ def resolve_citations(data_root: Path, provenance: list[dict]) -> list[dict]:
     "quote"}. quote is the highlight's exact source_quote when the row came
     from a highlight; None for digest-derived (Phase 6b-2) rows, which have
     no single quote. label prefers the highlight's denormalized source_title,
-    then the source's own title, then the raw source_id."""
+    falling back to the source's own title. A row whose source no longer
+    exists (deleted after this provenance was recorded — see
+    app.graph_store.store.delete_concept_sources_for_source /
+    delete_concept_highlights_for_source, called on source deletion) is
+    skipped entirely rather than falling back to the raw source_id, which
+    used to leak an unlabeled hex id into the rendered page (found live,
+    2026-09-10) — matches the same "skip a dangling reference rather than
+    surface it" convention app.graph_store.view.build_graph_response
+    already uses for the graph view."""
     highlights_cache: dict[str, dict] = {}
     citations = []
     for row in provenance:
@@ -117,8 +125,9 @@ def resolve_citations(data_root: Path, provenance: list[dict]) -> list[dict]:
                 citations.append({"source_id": source_id, "label": highlight.source_title, "quote": highlight.source_quote})
                 continue
         record = get_source(data_root, source_id)
-        label = record.title if record else source_id
-        citations.append({"source_id": source_id, "label": label, "quote": None})
+        if record is None:
+            continue
+        citations.append({"source_id": source_id, "label": record.title, "quote": None})
     return citations
 
 

@@ -15,7 +15,13 @@ from app.chat.prompts import build_chat_prompt
 from app.concept_graph.pipeline import process_highlight, process_source_concepts, promote_concept
 from app.core.config import get_data_root
 from app.graph import build_system_graph, checkpoint_db_path
-from app.graph_store.store import delete_concept_highlights_for_highlight, graph_db_path, init_db
+from app.graph_store.store import (
+    delete_concept_highlights_for_highlight,
+    delete_concept_highlights_for_source,
+    delete_concept_sources_for_source,
+    graph_db_path,
+    init_db,
+)
 from app.ingestion.extractor import extract_content
 from app.ingestion.fetcher import (
     FetchBlockedError,
@@ -291,6 +297,15 @@ def delete_source_endpoint(source_id: str):
     data_root = get_data_root()
     if not delete_source(data_root, source_id):
         raise HTTPException(status_code=404, detail="Source not found")
+    # Clean up graph provenance referencing the deleted source, so no row in
+    # concept_sources/concept_highlights survives pointing at a source_id
+    # that no longer exists — an orphaned row like that previously made a
+    # wiki page's "Sources" citation fall back to a bare hex id (found live,
+    # 2026-09-10). No-op if graph.db doesn't exist yet (nothing to clean).
+    db_path = graph_db_path(data_root)
+    if db_path.exists():
+        delete_concept_sources_for_source(db_path, source_id)
+        delete_concept_highlights_for_source(db_path, source_id)
 
 
 @router.post("/{source_id}/analyze", response_model=AnalysisResult)

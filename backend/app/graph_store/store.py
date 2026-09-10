@@ -229,9 +229,26 @@ def delete_concept_sources_for_source(db_path: Path, source_id: str) -> None:
     process_source_concepts on a re-analyze, e.g. so a retry doesn't
     re-insert duplicate (concept_id, source_id) rows. Does not delete the
     concept rows themselves — a concept may still be linked from other
-    sources or highlights."""
+    sources or highlights. Also called (alongside
+    delete_concept_highlights_for_source) when a source is deleted outright
+    — see app.repositories.source_repository.delete_source's caller in
+    routers/sources.py — so no provenance row survives pointing at a
+    source_id that no longer exists (found live: an orphaned row like this
+    made a wiki page's "Sources" citation fall back to a bare hex id with
+    no human-readable label)."""
     with _connect(db_path) as conn:
         conn.execute("DELETE FROM concept_sources WHERE source_id = ?", (source_id,))
+        conn.commit()
+
+
+def delete_concept_highlights_for_source(db_path: Path, source_id: str) -> None:
+    """Clear all of one source's Tier-2 (highlight) provenance links — the
+    per-source counterpart to delete_concept_highlights_for_highlight (which
+    only clears one highlight at a time). Called alongside
+    delete_concept_sources_for_source when a source is deleted, so both
+    provenance tables stay in sync with which sources still exist."""
+    with _connect(db_path) as conn:
+        conn.execute("DELETE FROM concept_highlights WHERE source_id = ?", (source_id,))
         conn.commit()
 
 

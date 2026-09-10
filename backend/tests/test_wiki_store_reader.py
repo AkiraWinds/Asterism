@@ -87,10 +87,15 @@ def test_resolve_citations_falls_back_to_source_title_when_no_highlight_id(tmp_p
     assert citations == [{"source_id": "s_b", "label": "Article B", "quote": None}]
 
 
-def test_resolve_citations_falls_back_to_source_id_when_nothing_resolves(tmp_path: Path):
+def test_resolve_citations_skips_row_for_deleted_source(tmp_path: Path):
+    # Regression test: a provenance row can outlive its source (deleted
+    # after the row was recorded, before source deletion cleaned up
+    # concept_sources/concept_highlights — see
+    # app.graph_store.store.delete_concept_sources_for_source). This must be
+    # skipped, not surfaced as a bare, unlabeled source_id.
     citations = resolve_citations(tmp_path, [{"source_id": "s_missing", "highlight_id": None}])
 
-    assert citations == [{"source_id": "s_missing", "label": "s_missing", "quote": None}]
+    assert citations == []
 
 
 # scan_wiki_pages tests
