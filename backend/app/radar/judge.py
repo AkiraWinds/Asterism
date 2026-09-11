@@ -11,9 +11,8 @@ docs/superpowers/specs/2026-08-02-radar-content-discovery-design.md.
 import json
 import re
 
+from app.constants import MAX_ATTEMPTS
 from app.providers.base import Provider, ProviderConfigError, ProviderError, ProviderMissingError
-
-MAX_ATTEMPTS = 2
 
 
 class JudgeError(Exception):

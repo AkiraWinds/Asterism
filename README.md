@@ -160,7 +160,7 @@ or, for a direct API key instead of a CLI session:
 { "strategy": "api-key", "provider": "anthropic", "api_key": "sk-ant-..." }
 ```
 
-The knowledge graph's embedding step always calls OpenAI directly (Anthropic has no embeddings endpoint, and CLI providers can't embed at all) — set `"embeddings_api_key"` in the same `config.json` for that feature to work.
+The knowledge graph's embedding step always calls OpenAI directly (Anthropic has no embeddings endpoint, and CLI providers can't embed at all) — set `"embeddings_api_key"` in the same `config.json` for that feature to work. `"embeddings_model"` is optional (defaults to `text-embedding-3-small`) — only change it before the graph has any concepts, since mixing embedding models mid-graph breaks similarity matching.
 
 **Frontend** (Next.js, port 3000):
 

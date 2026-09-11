@@ -15,7 +15,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.core.config import get_data_root  # noqa: E402
 from app.providers.factory import build_provider  # noqa: E402
 from app.radar.pipeline import refresh_radar  # noqa: E402
-from app.repositories.config_repository import ConfigError, load_config, load_embeddings_api_key  # noqa: E402
+from app.repositories.config_repository import (  # noqa: E402
+    ConfigError,
+    load_config,
+    load_embeddings_api_key,
+    load_embeddings_model,
+)
 
 
 def main() -> int:
@@ -23,12 +28,13 @@ def main() -> int:
     try:
         config = load_config(data_root)
         embeddings_api_key = load_embeddings_api_key(data_root)
+        embeddings_model = load_embeddings_model(data_root)
     except ConfigError as exc:
         print(json.dumps({"error": str(exc)}))
         return 1
 
     provider = build_provider(config, data_root)
-    summary = refresh_radar(data_root, provider, embeddings_api_key)
+    summary = refresh_radar(data_root, provider, embeddings_api_key, embeddings_model=embeddings_model)
     print(json.dumps(summary))
     return 0
 

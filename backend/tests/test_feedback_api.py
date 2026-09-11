@@ -92,7 +92,7 @@ def test_promote_claim_creates_highlight_and_marks_promoted(tmp_path: Path, monk
     provider = MagicMock()
     provider.complete.return_value = '[{"term": "t", "definition": "The sky is blue.", "self_relevant": false}]'
     monkeypatch.setattr("app.routers.sources.build_provider", lambda config, data_root: provider)
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
 
     rate_response = client.put(
         f"/sources/{source_id}/feedback",
@@ -123,7 +123,7 @@ def test_promote_concept_uses_promote_concept_path(tmp_path: Path, monkeypatch):
 
     provider = MagicMock()
     monkeypatch.setattr("app.routers.sources.build_provider", lambda config, data_root: provider)
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
 
     rate_response = client.put(
         f"/sources/{source_id}/feedback",
@@ -162,7 +162,7 @@ def test_promote_returns_400_when_already_promoted(tmp_path: Path, monkeypatch):
     provider = MagicMock()
     provider.complete.return_value = '[{"term": "t", "definition": "d", "self_relevant": false}]'
     monkeypatch.setattr("app.routers.sources.build_provider", lambda config, data_root: provider)
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
 
     rate_response = client.put(
         f"/sources/{source_id}/feedback", json={"kind": "claim", "content": "text", "rating": "up"}
@@ -213,7 +213,7 @@ def test_promote_critique_creates_highlight_and_marks_promoted(tmp_path: Path, m
     provider = MagicMock()
     provider.complete.return_value = '[{"term": "t", "definition": "Assumes X without evidence.", "self_relevant": false}]'
     monkeypatch.setattr("app.routers.sources.build_provider", lambda config, data_root: provider)
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
 
     rate_response = client.put(
         f"/sources/{source_id}/feedback",
@@ -259,7 +259,7 @@ def test_promote_reuses_existing_highlight_without_reprocessing(tmp_path: Path, 
     provider = MagicMock()
     provider.complete.return_value = '[{"term": "t", "definition": "The sky is blue.", "self_relevant": false}]'
     monkeypatch.setattr("app.routers.sources.build_provider", lambda config, data_root: provider)
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
 
     # Manually create the highlight first (same path a user hitting "highlight
     # this text" in the UI would take), so it's already been through the

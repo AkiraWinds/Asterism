@@ -108,7 +108,7 @@ def test_dismiss_already_added_item_returns_409(tmp_path: Path, monkeypatch):
 def test_refresh_endpoint_invokes_pipeline(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
     _write_config(tmp_path)
-    monkeypatch.setattr("app.routers.radar.refresh_radar", lambda data_root, provider, api_key: {"Some Source": {"fetched": 2, "new": 1, "error": None}})
+    monkeypatch.setattr("app.routers.radar.refresh_radar", lambda data_root, provider, api_key, **_kwargs: {"Some Source": {"fetched": 2, "new": 1, "error": None}})
 
     response = client.post("/radar/refresh")
 

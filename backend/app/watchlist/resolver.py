@@ -19,6 +19,7 @@ from app.graph_store.store import (
 )
 from app.providers.base import Provider, ProviderError
 from app.providers.embeddings import embed_text
+from app.repositories.config_repository import DEFAULT_EMBEDDINGS_MODEL
 from app.search.brave import search_web
 
 # True cosine similarity (nearest_neighbors' true_similarity, NOT its
@@ -43,6 +44,7 @@ def _now_iso() -> str:
 
 def resolve_watchlist_entry(
     data_root: Path, entry_id: str, llm_provider: Provider, embeddings_api_key: str, brave_api_key: str | None,
+    embeddings_model: str = DEFAULT_EMBEDDINGS_MODEL,
 ) -> dict:
     db_path = graph_db_path(data_root)
     init_db(db_path)
@@ -50,7 +52,7 @@ def resolve_watchlist_entry(
     if entry is None:
         raise ValueError(f"No watchlist entry with id {entry_id!r}")
 
-    term_embedding = embed_text(embeddings_api_key, entry["term"])
+    term_embedding = embed_text(embeddings_api_key, entry["term"], model=embeddings_model)
     neighbors = nearest_neighbors(db_path, term_embedding, top_k=1)
 
     # Graph match: nearest neighbor's TRUE similarity clears the threshold,

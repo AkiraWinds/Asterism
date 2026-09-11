@@ -23,7 +23,13 @@ from app.graph_store.store import (
 )
 from app.providers.embeddings import embed_text
 from app.providers.factory import build_provider
-from app.repositories.config_repository import ConfigError, load_brave_api_key, load_config, load_embeddings_api_key
+from app.repositories.config_repository import (
+    ConfigError,
+    load_brave_api_key,
+    load_config,
+    load_embeddings_api_key,
+    load_embeddings_model,
+)
 from app.schemas.watchlist import WatchlistCreateRequest, WatchlistEntry, WatchlistHistory
 from app.watchlist.resolver import resolve_watchlist_entry
 
@@ -59,11 +65,14 @@ def post_watchlist_endpoint(payload: WatchlistCreateRequest) -> WatchlistEntry:
         config = load_config(data_root)
         embeddings_api_key = load_embeddings_api_key(data_root)
         brave_api_key = load_brave_api_key(data_root)
+        embeddings_model = load_embeddings_model(data_root)
         llm_provider = build_provider(config, data_root)
     except ConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    resolved = resolve_watchlist_entry(data_root, entry_id, llm_provider, embeddings_api_key, brave_api_key)
+    resolved = resolve_watchlist_entry(
+        data_root, entry_id, llm_provider, embeddings_api_key, brave_api_key, embeddings_model=embeddings_model,
+    )
     return WatchlistEntry(**resolved)
 
 
@@ -89,11 +98,14 @@ def patch_watchlist_endpoint(entry_id: str, payload: WatchlistCreateRequest) -> 
         config = load_config(data_root)
         embeddings_api_key = load_embeddings_api_key(data_root)
         brave_api_key = load_brave_api_key(data_root)
+        embeddings_model = load_embeddings_model(data_root)
         llm_provider = build_provider(config, data_root)
     except ConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    resolved = resolve_watchlist_entry(data_root, entry_id, llm_provider, embeddings_api_key, brave_api_key)
+    resolved = resolve_watchlist_entry(
+        data_root, entry_id, llm_provider, embeddings_api_key, brave_api_key, embeddings_model=embeddings_model,
+    )
     return WatchlistEntry(**resolved)
 
 
@@ -132,9 +144,10 @@ def approve_watchlist_endpoint(entry_id: str) -> WatchlistEntry:
     else:
         try:
             embeddings_api_key = load_embeddings_api_key(data_root)
+            embeddings_model = load_embeddings_model(data_root)
         except ConfigError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        embedding = embed_text(embeddings_api_key, entry["draft_definition"])
+        embedding = embed_text(embeddings_api_key, entry["draft_definition"], model=embeddings_model)
         concept_id = f"c_{uuid.uuid4().hex[:10]}"
         insert_concept(
             db_path, concept_id, entry["term"], entry["draft_definition"], embedding,

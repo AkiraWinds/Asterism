@@ -11,6 +11,7 @@ from pathlib import Path
 
 from app.graph_store.store import nearest_neighbors
 from app.providers.embeddings import embed_text
+from app.repositories.config_repository import DEFAULT_EMBEDDINGS_MODEL
 
 
 def filter_new_items(items: list[dict], seen_urls: set[str]) -> list[dict]:
@@ -27,18 +28,19 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 def coarse_filter(
-    graph_db_path: Path, embeddings_api_key: str, items: list[dict], boost_terms: list[str], top_n: int = 20
+    graph_db_path: Path, embeddings_api_key: str, items: list[dict], boost_terms: list[str], top_n: int = 20,
+    embeddings_model: str = DEFAULT_EMBEDDINGS_MODEL,
 ) -> list[dict]:
     """Scores each item by the best of: its similarity to the nearest
     concept-graph concept, or its similarity to any boost topic. Returns the
     top_n items sorted by that score descending, each with a _coarse_score
     field attached."""
-    boost_embeddings = [embed_text(embeddings_api_key, term) for term in boost_terms]
+    boost_embeddings = [embed_text(embeddings_api_key, term, model=embeddings_model) for term in boost_terms]
 
     scored = []
     for item in items:
         text = f"{item['title']}\n{item.get('summary', '')}"
-        embedding = embed_text(embeddings_api_key, text)
+        embedding = embed_text(embeddings_api_key, text, model=embeddings_model)
 
         best = 0.0
         neighbors = nearest_neighbors(graph_db_path, embedding, top_k=1)

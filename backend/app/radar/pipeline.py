@@ -28,6 +28,7 @@ from app.radar_store.store import (
     radar_db_path,
     update_feed_source_fetch_status,
 )
+from app.repositories.config_repository import DEFAULT_EMBEDDINGS_MODEL
 from app.repositories.source_repository import list_source_urls
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,9 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def refresh_radar(data_root: Path, provider: Provider, embeddings_api_key: str) -> dict:
+def refresh_radar(
+    data_root: Path, provider: Provider, embeddings_api_key: str, embeddings_model: str = DEFAULT_EMBEDDINGS_MODEL,
+) -> dict:
     """Run one Radar refresh pass across all enabled feed sources.
 
     Returns {source_name: {"fetched": int, "new": int, "error": str | None}}.
@@ -115,7 +118,7 @@ def refresh_radar(data_root: Path, provider: Provider, embeddings_api_key: str) 
     # means no items get judged this run; the pass-1 fetch-status bookkeeping
     # above is unaffected.
     try:
-        shortlist = coarse_filter(g_db_path, embeddings_api_key, combined_items, boost_terms)
+        shortlist = coarse_filter(g_db_path, embeddings_api_key, combined_items, boost_terms, embeddings_model=embeddings_model)
     except Exception as exc:  # noqa: BLE001 - a run-level coarse-filter failure must not abort the run or discard pass-1 results
         logger.warning("Radar coarse filter failed error=%s", exc)
         shortlist = []
