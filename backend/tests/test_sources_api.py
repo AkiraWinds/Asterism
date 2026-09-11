@@ -59,6 +59,52 @@ def test_create_source_pasting_same_text_twice_returns_existing_source(tmp_path:
     assert len(list((tmp_path / "library").iterdir())) == 1
 
 
+def test_concurrent_create_source_with_whitespace_differing_content_serializes_correctly(
+    tmp_path: Path, monkeypatch
+):
+    # Regression test: the per-content dedup lock key must be derived from
+    # the *stripped* content (matching find_duplicate_source's own
+    # content.strip() comparison), not the raw string — otherwise "Same
+    # body" and "Same body\n" hash to different lock keys, both requests
+    # sail past find_duplicate_source before either writes meta.json, and
+    # the exact race this file's URL-based test closes reopens for
+    # whitespace-differing pasted text.
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    from app.repositories.source_repository import create_source as _real_create_source
+
+    def _slow_create_source(*args, **kwargs):
+        # Widen the race window the same way the URL-based test widens it via
+        # fetch_url: without this, create_source's plain couple of
+        # write_text() calls are fast enough that two threads rarely overlap
+        # even pre-fix, making the test unreliable at catching the bug.
+        time.sleep(0.2)
+        return _real_create_source(*args, **kwargs)
+
+    monkeypatch.setattr("app.routers.sources.create_source", _slow_create_source)
+
+    start = threading.Event()
+    results = [None, None]
+    contents = ["Same body", "Same body\n"]
+
+    def _post(index):
+        start.wait()
+        results[index] = client.post(
+            "/sources", json={"title": "Note", "content": contents[index]}
+        ).json()
+
+    threads = [threading.Thread(target=_post, args=(i,)) for i in range(2)]
+    for t in threads:
+        t.start()
+    start.set()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert all(results)
+    assert results[0]["id"] == results[1]["id"]
+    assert sum(1 for r in results if r.get("duplicate")) == 1
+    assert len(list((tmp_path / "library").iterdir())) == 1
+
+
 def test_create_source_from_url_twice_returns_existing_source_without_refetching(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
     fetch_calls = {"n": 0}

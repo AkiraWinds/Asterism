@@ -1,5 +1,6 @@
 """API routes for creating, listing, and analyzing sources."""
 
+import hashlib
 import json
 import logging
 import threading
@@ -102,25 +103,40 @@ def _error_response(status_code: int, error_type: str, message: str) -> JSONResp
 # either has written meta.json, producing duplicate source directories for
 # the identical content. Confirmed live (see todo.md, 2026-09-11) — a slow
 # create request left a wide-enough window for a retry click to sail through.
-# Serialize create requests per dedup key (URL, or the raw content string for
-# pasted text) with a plain in-process lock: the endpoint runs sync, so
-# FastAPI executes it in a worker thread, and blocking that thread is fine —
-# a second request for the same key just waits for the first to finish, then
-# re-runs find_duplicate_source and finds what the first request created.
+# Serialize create requests per dedup key with a plain in-process lock: the
+# endpoint runs sync, so FastAPI executes it in a worker thread, and blocking
+# that thread is fine — a second request for the same key just waits for the
+# first to finish, then re-runs find_duplicate_source and finds what the
+# first request created.
+#
+# The key is scoped by data_root (get_data_root() can return a different
+# path per request, notably across tests) so two requests against different
+# libraries never serialize against — or "find" — each other. For the
+# pasted-text branch the key is a hash of the *stripped* content rather than
+# the raw string, matching find_duplicate_source's own
+# `content.strip() == content.strip()` comparison (so whitespace-only
+# differences still serialize against each other) and keeping each dict
+# entry small regardless of how long the pasted text is.
+#
 # One Lock per key, never removed — negligible memory at this app's
-# personal-library scale (one Lock object per unique URL/text ever
+# personal-library scale (one small key + Lock per unique URL/text ever
 # submitted), not worth an eviction scheme.
 _dedup_locks: dict[str, threading.Lock] = {}
 _dedup_locks_guard = threading.Lock()
 
 
-def _lock_for_dedup_key(key: str) -> threading.Lock:
+def _lock_for_dedup_key(data_root: Path, key: str) -> threading.Lock:
+    scoped_key = f"{data_root}:{key}"
     with _dedup_locks_guard:
-        lock = _dedup_locks.get(key)
+        lock = _dedup_locks.get(scoped_key)
         if lock is None:
             lock = threading.Lock()
-            _dedup_locks[key] = lock
+            _dedup_locks[scoped_key] = lock
         return lock
+
+
+def _content_dedup_key(content: str) -> str:
+    return hashlib.sha256(content.strip().encode("utf-8")).hexdigest()
 
 
 @router.post("", response_model=SourceDetailResponse)
@@ -128,7 +144,7 @@ def create_source_endpoint(payload: SourceCreateRequest):
     data_root = get_data_root()
 
     if payload.url:
-        with _lock_for_dedup_key(payload.url):
+        with _lock_for_dedup_key(data_root, payload.url):
             return _create_source_from_url(data_root, payload)
 
     if not payload.title or payload.content is None:
@@ -136,7 +152,7 @@ def create_source_endpoint(payload: SourceCreateRequest):
             status_code=400, detail="Both 'title' and 'content' are required when 'url' is not provided"
         )
 
-    with _lock_for_dedup_key(payload.content):
+    with _lock_for_dedup_key(data_root, _content_dedup_key(payload.content)):
         existing = find_duplicate_source(data_root, content=payload.content)
         if existing is not None:
             return SourceDetailResponse(
