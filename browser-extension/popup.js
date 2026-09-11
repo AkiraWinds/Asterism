@@ -100,6 +100,19 @@ document.getElementById("analyze").addEventListener("click", async () => {
 
 document.getElementById("save").addEventListener("click", async () => {
   setStatus("Saving…");
+  // Mirror the Analyze handler's timeout/disable/finally pattern (see its
+  // comment above): the backend save can legitimately take 60s+ (the
+  // AI-extraction fallback path), and the popup's whole DOM/JS context is
+  // destroyed the instant it loses focus, not just paused — so a save that
+  // outlives the popup being closed used to leave "Saving…" on screen
+  // forever with no way for the user to tell it actually finished.
+  const analyzeButton = document.getElementById("analyze");
+  const saveButton = document.getElementById("save");
+  analyzeButton.disabled = true;
+  saveButton.disabled = true;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const { html, title, url } = await capturePage(tab.id);
@@ -112,10 +125,18 @@ document.getElementById("save").addEventListener("click", async () => {
       return;
     }
 
+    // Recorded before the fetch so that if this popup context is torn down
+    // mid-request (see above), the next popup open can tell the user a save
+    // may still be in flight rather than showing blank default state.
+    // Cleared in `finally` below whenever this context survives to see the
+    // request resolve — sources.py's dedup check makes retrying always safe.
+    await chrome.storage.session.set({ pendingSaveUrl: url });
+
     const response = await fetch(`${backendUrl}/sources`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url, title, html }),
+      signal: controller.signal,
     });
 
     const body = await response.json();
@@ -125,6 +146,34 @@ document.getElementById("save").addEventListener("click", async () => {
     }
     setStatus(`Saved: ${body.title}`, "success");
   } catch (err) {
-    setStatus(`Error: ${err.message}`, "error");
+    if (err.name === "AbortError") {
+      setStatus("Save took too long — the backend may still be working. Reopening and clicking Save again is safe (duplicates are detected automatically).", "error");
+    } else {
+      setStatus(`Error: ${err.message}`, "error");
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    analyzeButton.disabled = false;
+    saveButton.disabled = false;
+    try {
+      await chrome.storage.session.remove("pendingSaveUrl");
+    } catch {
+      // Best-effort only — if this popup context is being torn down right
+      // now, the flag is exactly what the next popup open should still see.
+    }
   }
 });
+
+// If a previous popup was destroyed mid-save (see above), pendingSaveUrl
+// survives in session storage and this tells the user rather than showing
+// silent blank default state.
+(async () => {
+  try {
+    const { pendingSaveUrl } = await chrome.storage.session.get("pendingSaveUrl");
+    if (pendingSaveUrl) {
+      setStatus(`A previous save of ${pendingSaveUrl} may still be finishing — click Save again to check; duplicates are detected automatically, so retrying is safe.`);
+    }
+  } catch {
+    // chrome.storage.session unavailable (older Chrome) — nothing to recover.
+  }
+})();
