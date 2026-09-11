@@ -55,10 +55,26 @@ class ExtractionFailedError(Exception):
 # a table or SVG image present in the raw HTML didn't make it into the output,
 # and hand the raw HTML to the AI extractor (whose prompt already asks for tables
 # and images) to interpret instead.
+# 3. A third blind spot, found live on a docs site using Shiki/Prism-style syntax
+#    highlighting: each line of a code sample is wrapped in its own <span class="line">,
+#    with per-token <span style="color:..."> nested inside that. On a large enough page (a
+#    code-heavy tutorial with several such blocks — reproduced on the real page, not on a
+#    small isolated fixture, so this is a whole-document effect rather than a per-block one)
+#    trafilatura's markdown writer stops recognizing these as <pre> content at all and joins
+#    every line span with a space like ordinary inline text, so a whole multi-line function
+#    round-trips as one giant line wrapped in a single inline `code` span — real content,
+#    genuinely present in the output, just missing every line break.
 _TABLE_TAG_RE = re.compile(r"<table\b", re.IGNORECASE)
 _MARKDOWN_TABLE_ROW_RE = re.compile(r"^\s*\|.+\|\s*$", re.MULTILINE)
 _SVG_IMAGE_SRC_RE = re.compile(r'<img\b[^>]*\bsrc=["\']([^"\']+\.svg\b[^"\']*)["\']', re.IGNORECASE)
+_PRE_TAG_RE = re.compile(r"<pre\b.*?</pre>", re.IGNORECASE | re.DOTALL)
+_FENCED_CODE_BLOCK_RE = re.compile(r"```.*?```", re.DOTALL)
 _MAIN_CONTENT_RE = re.compile(r"<main\b.*?</main>|<article\b.*?</article>", re.IGNORECASE | re.DOTALL)
+
+# A <pre> with fewer lines than this isn't worth escalating to the AI extractor over even if
+# it does get flattened — the content loss is trivial and the AI-fallback's own cost (a full
+# provider call) isn't worth paying for it.
+MIN_MULTILINE_CODE_LINES = 3
 
 
 def _main_content_region(html: str) -> str:
@@ -90,6 +106,16 @@ def _dropped_structural_content(html: str, extracted: str) -> bool:
     return any(src not in extracted for src in _SVG_IMAGE_SRC_RE.findall(content_html))
 
 
+def _dropped_multiline_code(html: str, extracted: str) -> bool:
+    content_html = _main_content_region(html)
+    has_multiline_pre = any(
+        pre.count("\n") >= MIN_MULTILINE_CODE_LINES for pre in _PRE_TAG_RE.findall(content_html)
+    )
+    if not has_multiline_pre:
+        return False
+    return not any(block.count("\n") >= 2 for block in _FENCED_CODE_BLOCK_RE.findall(extracted))
+
+
 def extract_content(html: str, url: str, data_root: Path) -> str:
     extracted = trafilatura.extract(
         html,
@@ -100,7 +126,12 @@ def extract_content(html: str, url: str, data_root: Path) -> str:
         include_links=True,
     )
 
-    if extracted and len(extracted) > MIN_LENGTH and not _dropped_structural_content(html, extracted):
+    if (
+        extracted
+        and len(extracted) > MIN_LENGTH
+        and not _dropped_structural_content(html, extracted)
+        and not _dropped_multiline_code(html, extracted)
+    ):
         return extracted
 
     prompt = EXTRACTION_PROMPT_TEMPLATE.format(html=_main_content_region(html)[:MAX_HTML_CHARS])
