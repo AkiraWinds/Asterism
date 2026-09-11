@@ -39,12 +39,36 @@ EXTRACTION_PROMPT_TEMPLATE = (
 _TABLE_TAG_RE = re.compile(r"<table\b", re.IGNORECASE)
 _MARKDOWN_TABLE_ROW_RE = re.compile(r"^\s*\|.+\|\s*$", re.MULTILINE)
 _SVG_IMAGE_SRC_RE = re.compile(r'<img\b[^>]*\bsrc=["\']([^"\']+\.svg\b[^"\']*)["\']', re.IGNORECASE)
+_MAIN_CONTENT_RE = re.compile(r"<main\b.*?</main>|<article\b.*?</article>", re.IGNORECASE | re.DOTALL)
+
+
+def _main_content_region(html: str) -> str:
+    """Return the page's <main>/<article> region(s), or the whole document if it has neither.
+
+    Docs/blog sites routinely put a full site-nav tree, a header logo, and search UI ahead of
+    the actual article in DOM order — often tens or hundreds of KB of markup. Two things need
+    to look only at the article itself rather than the whole page:
+      1. `_dropped_structural_content`'s table/SVG check — otherwise a decorative image in the
+         header (e.g. a site logo <img src="logo.svg">, which trafilatura correctly never
+         includes in article output) reads as "trafilatura dropped real content" and forces
+         every page using that logo through the AI-extraction fallback for no reason.
+      2. The AI-extraction fallback's own input — `html[:MAX_HTML_CHARS]` from the start of a
+         page whose nav tree alone exceeds MAX_HTML_CHARS truncates before the article even
+         begins, so the model is only ever shown chrome and (correctly) refuses to fabricate
+         a body it was never given.
+    <main>/<article> are the standard HTML5 landmarks for "this is the content", so scoping to
+    them (falling back to the full page when neither is present) generalizes across sites
+    without hardcoding any site-specific selector.
+    """
+    matches = _MAIN_CONTENT_RE.findall(html)
+    return "".join(matches) if matches else html
 
 
 def _dropped_structural_content(html: str, extracted: str) -> bool:
-    if _TABLE_TAG_RE.search(html) and not _MARKDOWN_TABLE_ROW_RE.search(extracted):
+    content_html = _main_content_region(html)
+    if _TABLE_TAG_RE.search(content_html) and not _MARKDOWN_TABLE_ROW_RE.search(extracted):
         return True
-    return any(src not in extracted for src in _SVG_IMAGE_SRC_RE.findall(html))
+    return any(src not in extracted for src in _SVG_IMAGE_SRC_RE.findall(content_html))
 
 
 def extract_content(html: str, url: str, data_root: Path) -> str:
@@ -60,7 +84,7 @@ def extract_content(html: str, url: str, data_root: Path) -> str:
     if extracted and len(extracted) > MIN_LENGTH and not _dropped_structural_content(html, extracted):
         return extracted
 
-    prompt = EXTRACTION_PROMPT_TEMPLATE.format(html=html[:MAX_HTML_CHARS])
+    prompt = EXTRACTION_PROMPT_TEMPLATE.format(html=_main_content_region(html)[:MAX_HTML_CHARS])
     config = load_config(data_root)
     provider = build_provider(config, data_root)
     return provider.complete(prompt)
