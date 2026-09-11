@@ -1,9 +1,12 @@
 """API routes for creating, listing, and analyzing sources."""
 
+import hashlib
 import json
 import logging
+import threading
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -94,91 +97,142 @@ def _error_response(status_code: int, error_type: str, message: str) -> JSONResp
     )
 
 
+# find_duplicate_source's check and the slow fetch/extract/write sequence that
+# follows it are not atomic against each other: two overlapping requests for
+# the same URL (or the same pasted text) can both pass the dedup check before
+# either has written meta.json, producing duplicate source directories for
+# the identical content. Confirmed live (see todo.md, 2026-09-11) — a slow
+# create request left a wide-enough window for a retry click to sail through.
+# Serialize create requests per dedup key with a plain in-process lock: the
+# endpoint runs sync, so FastAPI executes it in a worker thread, and blocking
+# that thread is fine — a second request for the same key just waits for the
+# first to finish, then re-runs find_duplicate_source and finds what the
+# first request created.
+#
+# The key is scoped by data_root (get_data_root() can return a different
+# path per request, notably across tests) so two requests against different
+# libraries never serialize against — or "find" — each other. For the
+# pasted-text branch the key is a hash of the *stripped* content rather than
+# the raw string, matching find_duplicate_source's own
+# `content.strip() == content.strip()` comparison (so whitespace-only
+# differences still serialize against each other) and keeping each dict
+# entry small regardless of how long the pasted text is.
+#
+# One Lock per key, never removed — negligible memory at this app's
+# personal-library scale (one small key + Lock per unique URL/text ever
+# submitted), not worth an eviction scheme.
+_dedup_locks: dict[str, threading.Lock] = {}
+_dedup_locks_guard = threading.Lock()
+
+
+def _lock_for_dedup_key(data_root: Path, key: str) -> threading.Lock:
+    scoped_key = f"{data_root}:{key}"
+    with _dedup_locks_guard:
+        lock = _dedup_locks.get(scoped_key)
+        if lock is None:
+            lock = threading.Lock()
+            _dedup_locks[scoped_key] = lock
+        return lock
+
+
+def _content_dedup_key(content: str) -> str:
+    return hashlib.sha256(content.strip().encode("utf-8")).hexdigest()
+
+
 @router.post("", response_model=SourceDetailResponse)
 def create_source_endpoint(payload: SourceCreateRequest):
     data_root = get_data_root()
 
     if payload.url:
-        # Check before fetching, not after: this both avoids a wasted
-        # fetch+extraction round-trip for a URL already in the library, and
-        # is the only guard against ingesting the exact same page twice —
-        # nothing else in this codebase deduplicates sources (see
-        # find_duplicate_source's docstring for the matching rule).
-        existing = find_duplicate_source(data_root, url=payload.url)
-        if existing is not None:
-            return SourceDetailResponse(
-                id=existing.id, title=existing.title, created_at=existing.created_at, content=existing.content,
-                analysis=read_analysis(data_root, existing.id), read_at=existing.read_at, duplicate=True,
-            )
-        if payload.html:
-            # Pre-fetched by a caller that already has the rendered page in hand (e.g. the
-            # browser extension), so it can bypass server-side fetch entirely — this is how
-            # login-walled/JS-rendered pages get captured without needing cookie replay.
-            html = payload.html
-        else:
-            try:
-                html = fetch_url(payload.url)
-            except LoginRequiredError as exc:
-                logger.warning("Ingestion login_required url=%s", payload.url)
-                return _error_response(400, "login_required", str(exc))
-            except FetchBlockedError as exc:
-                logger.warning("Ingestion blocked url=%s", payload.url)
-                return _error_response(400, "blocked", str(exc))
-            except FetchTimeoutError as exc:
-                logger.warning("Ingestion fetch timeout url=%s", payload.url)
-                return _error_response(504, "timeout", str(exc))
-            except FetchError as exc:
-                logger.warning("Ingestion fetch error url=%s type=%s", payload.url, type(exc).__name__)
-                return _error_response(502, "error", str(exc))
-
-        title = extract_title(html, payload.url)
-
-        try:
-            content = extract_content(html, payload.url, data_root)
-        except ConfigError as exc:
-            return _error_response(400, "config", str(exc))
-        except ProviderMissingError as exc:
-            return _error_response(400, "missing", str(exc))
-        except ProviderConfigError as exc:
-            return _error_response(400, "config", str(exc))
-        except ProviderTimeoutError as exc:
-            logger.warning("Ingestion extraction provider timeout url=%s", payload.url)
-            return _error_response(504, "timeout", str(exc))
-        except ProviderError as exc:
-            logger.warning(
-                "Ingestion extraction provider error url=%s type=%s", payload.url, type(exc).__name__
-            )
-            return _error_response(502, "error", str(exc))
-        except ExtractionFailedError as exc:
-            logger.warning("Ingestion extraction found no content url=%s", payload.url)
-            return _error_response(422, "no_content", str(exc))
-
-        try:
-            record = create_source_from_url(data_root, payload.url, title, html, content)
-        except OSError as exc:
-            logger.exception("Failed to persist source for url=%s", payload.url)
-            return _error_response(500, "storage", f"Failed to save source: {exc}")
-        # A freshly ingested source has never been analyzed yet, so analysis is None.
-        return SourceDetailResponse(
-            id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=None
-        )
+        with _lock_for_dedup_key(data_root, payload.url):
+            return _create_source_from_url(data_root, payload)
 
     if not payload.title or payload.content is None:
         raise HTTPException(
             status_code=400, detail="Both 'title' and 'content' are required when 'url' is not provided"
         )
 
-    existing = find_duplicate_source(data_root, content=payload.content)
+    with _lock_for_dedup_key(data_root, _content_dedup_key(payload.content)):
+        existing = find_duplicate_source(data_root, content=payload.content)
+        if existing is not None:
+            return SourceDetailResponse(
+                id=existing.id, title=existing.title, created_at=existing.created_at, content=existing.content,
+                analysis=read_analysis(data_root, existing.id), read_at=existing.read_at, duplicate=True,
+            )
+
+        record = create_source(data_root, title=payload.title, content=payload.content)
+        return SourceDetailResponse(
+            id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=None,
+            read_at=None,
+        )
+
+
+def _create_source_from_url(data_root: Path, payload: SourceCreateRequest) -> SourceDetailResponse | JSONResponse:
+    """The URL-ingestion branch of create_source_endpoint, called while holding
+    that URL's dedup lock (see _lock_for_dedup_key) so the check-then-create
+    sequence below is atomic against a concurrent request for the same URL."""
+    # Check before fetching, not after: this both avoids a wasted
+    # fetch+extraction round-trip for a URL already in the library, and
+    # is the only guard against ingesting the exact same page twice —
+    # nothing else in this codebase deduplicates sources (see
+    # find_duplicate_source's docstring for the matching rule).
+    existing = find_duplicate_source(data_root, url=payload.url)
     if existing is not None:
         return SourceDetailResponse(
             id=existing.id, title=existing.title, created_at=existing.created_at, content=existing.content,
             analysis=read_analysis(data_root, existing.id), read_at=existing.read_at, duplicate=True,
         )
+    if payload.html:
+        # Pre-fetched by a caller that already has the rendered page in hand (e.g. the
+        # browser extension), so it can bypass server-side fetch entirely — this is how
+        # login-walled/JS-rendered pages get captured without needing cookie replay.
+        html = payload.html
+    else:
+        try:
+            html = fetch_url(payload.url)
+        except LoginRequiredError as exc:
+            logger.warning("Ingestion login_required url=%s", payload.url)
+            return _error_response(400, "login_required", str(exc))
+        except FetchBlockedError as exc:
+            logger.warning("Ingestion blocked url=%s", payload.url)
+            return _error_response(400, "blocked", str(exc))
+        except FetchTimeoutError as exc:
+            logger.warning("Ingestion fetch timeout url=%s", payload.url)
+            return _error_response(504, "timeout", str(exc))
+        except FetchError as exc:
+            logger.warning("Ingestion fetch error url=%s type=%s", payload.url, type(exc).__name__)
+            return _error_response(502, "error", str(exc))
 
-    record = create_source(data_root, title=payload.title, content=payload.content)
+    title = extract_title(html, payload.url)
+
+    try:
+        content = extract_content(html, payload.url, data_root)
+    except ConfigError as exc:
+        return _error_response(400, "config", str(exc))
+    except ProviderMissingError as exc:
+        return _error_response(400, "missing", str(exc))
+    except ProviderConfigError as exc:
+        return _error_response(400, "config", str(exc))
+    except ProviderTimeoutError as exc:
+        logger.warning("Ingestion extraction provider timeout url=%s", payload.url)
+        return _error_response(504, "timeout", str(exc))
+    except ProviderError as exc:
+        logger.warning(
+            "Ingestion extraction provider error url=%s type=%s", payload.url, type(exc).__name__
+        )
+        return _error_response(502, "error", str(exc))
+    except ExtractionFailedError as exc:
+        logger.warning("Ingestion extraction found no content url=%s", payload.url)
+        return _error_response(422, "no_content", str(exc))
+
+    try:
+        record = create_source_from_url(data_root, payload.url, title, html, content)
+    except OSError as exc:
+        logger.exception("Failed to persist source for url=%s", payload.url)
+        return _error_response(500, "storage", f"Failed to save source: {exc}")
+    # A freshly ingested source has never been analyzed yet, so analysis is None.
     return SourceDetailResponse(
-        id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=None,
-        read_at=None,
+        id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=None
     )
 
 
