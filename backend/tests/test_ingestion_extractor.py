@@ -3,7 +3,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.ingestion.extractor import ExtractionFailedError, _dropped_multiline_code, extract_content
+from app.ingestion.extractor import (
+    ExtractionFailedError,
+    _dropped_multiline_code,
+    _resolve_relative_urls,
+    extract_content,
+)
 
 
 def _rich_article_html() -> str:
@@ -116,6 +121,31 @@ def test_extract_content_falls_back_to_ai_when_trafilatura_flattens_a_code_block
 
     assert result == fake_provider.complete.return_value
     mock_build_provider.assert_called_once()
+
+
+def test_resolve_relative_urls_resolves_image_and_link_targets():
+    markdown = (
+        "![Self-evolving loop](/cookbook/assets/images/baseline_agent.png)\n\n"
+        "See the [docs](/cookbook/docs) for more, or the "
+        "[external site](https://other.example.com/already-absolute)."
+    )
+    resolved = _resolve_relative_urls(markdown, "https://developers.openai.com/cookbook/examples/foo")
+
+    assert "](https://developers.openai.com/cookbook/assets/images/baseline_agent.png)" in resolved
+    assert "](https://developers.openai.com/cookbook/docs)" in resolved
+    # Already-absolute URLs pass through unchanged (urljoin is a no-op on them).
+    assert "](https://other.example.com/already-absolute)" in resolved
+
+
+def test_extract_content_resolves_relative_image_urls_from_ai_fallback(tmp_path: Path):
+    fake_provider = MagicMock()
+    fake_provider.complete.return_value = "# Rich\n\n![diagram](/assets/diagram.png)"
+
+    with patch("app.ingestion.extractor.load_config", return_value="fake-config"), \
+         patch("app.ingestion.extractor.build_provider", return_value=fake_provider):
+        result = extract_content(_thin_html(), "https://example.com/some/page", tmp_path)
+
+    assert result == "# Rich\n\n![diagram](https://example.com/assets/diagram.png)"
 
 
 def test_extract_content_raises_when_ai_extractor_finds_no_content(tmp_path: Path):

@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+from urllib.parse import urljoin
 
 import trafilatura
 
@@ -70,6 +71,10 @@ _SVG_IMAGE_SRC_RE = re.compile(r'<img\b[^>]*\bsrc=["\']([^"\']+\.svg\b[^"\']*)["
 _PRE_TAG_RE = re.compile(r"<pre\b.*?</pre>", re.IGNORECASE | re.DOTALL)
 _FENCED_CODE_BLOCK_RE = re.compile(r"```.*?```", re.DOTALL)
 _MAIN_CONTENT_RE = re.compile(r"<main\b.*?</main>|<article\b.*?</article>", re.IGNORECASE | re.DOTALL)
+# Matches a Markdown link/image opener up to its URL target: group(1) is "[text](" or
+# "![alt](", group(2) is the URL token itself (stops at whitespace/')' so an optional
+# ` "title"` suffix is left untouched).
+_MARKDOWN_LINK_TARGET_RE = re.compile(r'(!?\[[^\]]*\]\()([^)\s]+)')
 
 # A <pre> with fewer lines than this isn't worth escalating to the AI extractor over even if
 # it does get flattened — the content loss is trivial and the AI-fallback's own cost (a full
@@ -116,6 +121,27 @@ def _dropped_multiline_code(html: str, extracted: str) -> bool:
     return not any(block.count("\n") >= 2 for block in _FENCED_CODE_BLOCK_RE.findall(extracted))
 
 
+def _resolve_relative_urls(markdown: str, base_url: str) -> str:
+    """Resolve every Markdown link/image target against the page's base URL.
+
+    trafilatura resolves relative hrefs/srcs (e.g. `src="/assets/img.png"`, common on docs
+    sites) to absolute URLs itself, since it's given the page's url — verified live. The AI
+    extractor is only ever shown the HTML, not the URL it came from, so it has no base to
+    resolve against and faithfully round-trips a root-relative src as a root-relative Markdown
+    URL, which Asterism's reader (no notion of "this markdown came from domain X") can never
+    render — this is exactly why the OpenAI cookbook page's images render broken once real
+    content starts coming through the AI-fallback path (see the pre/code-collapse checks above,
+    which force that page through this path). urljoin is a no-op on an already-absolute URL, so
+    this is safe to apply unconditionally rather than trying to detect which targets need it.
+    """
+
+    def _replace(match: re.Match) -> str:
+        prefix, target = match.group(1), match.group(2)
+        return f"{prefix}{urljoin(base_url, target)}"
+
+    return _MARKDOWN_LINK_TARGET_RE.sub(_replace, markdown)
+
+
 def extract_content(html: str, url: str, data_root: Path) -> str:
     extracted = trafilatura.extract(
         html,
@@ -144,4 +170,4 @@ def extract_content(html: str, url: str, data_root: Path) -> str:
             "not have finished loading before it was captured. Try reloading the page and "
             "capturing again."
         )
-    return result
+    return _resolve_relative_urls(result, url)
