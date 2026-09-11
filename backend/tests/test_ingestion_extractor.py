@@ -1,7 +1,14 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.ingestion.extractor import extract_content
+import pytest
+
+from app.ingestion.extractor import (
+    ExtractionFailedError,
+    _dropped_multiline_code,
+    _resolve_relative_urls,
+    extract_content,
+)
 
 
 def _rich_article_html() -> str:
@@ -63,6 +70,96 @@ def test_extract_content_ignores_decorative_svg_outside_main_content(tmp_path: P
 
     assert "A Real Article Title" in result
     mock_build_provider.assert_not_called()
+
+
+def _article_with_multiline_pre() -> str:
+    # A Shiki/Prism-style syntax-highlighted code block: each line wrapped in its own
+    # <span class="line">. Reproducing trafilatura's real flattening bug requires the scale
+    # and complexity of an actual large docs page (verified live against the OpenAI cookbook
+    # page that originally reported this) — a small isolated fixture like this one round-trips
+    # through trafilatura correctly, so `_dropped_multiline_code` is unit-tested directly
+    # against representative html/extracted strings instead of relying on trafilatura to
+    # reproduce the collapse here (see `test_extract_content_falls_back_to_ai_when_trafilatura_flattens_a_code_block`
+    # below for the integration path, which mocks trafilatura's return value instead).
+    lines = "\n".join(f'<span class="line">line {i} of code here</span>' for i in range(1, 10))
+    return f'<pre data-language="python"><code>{lines}</code></pre>'
+
+
+def test_dropped_multiline_code_true_when_pre_collapses_to_single_line():
+    html = f"<article>{_article_with_multiline_pre()}</article>"
+    flattened = "line 1 of code here line 2 of code here line 3 of code here"
+    assert _dropped_multiline_code(html, flattened) is True
+
+
+def test_dropped_multiline_code_false_when_fenced_block_preserved():
+    html = f"<article>{_article_with_multiline_pre()}</article>"
+    fenced = "```\nline 1 of code here\nline 2 of code here\n```"
+    assert _dropped_multiline_code(html, fenced) is False
+
+
+def test_dropped_multiline_code_false_when_no_pre_present():
+    assert _dropped_multiline_code("<article><p>No code here.</p></article>", "No code here.") is False
+
+
+def test_extract_content_falls_back_to_ai_when_trafilatura_flattens_a_code_block(tmp_path: Path):
+    fake_provider = MagicMock()
+    fake_provider.complete.return_value = "# Rich\n\n```\nline 1 of code here\nline 2 of code here\n```"
+    paragraph = " ".join(f"This is sentence number {i} in a long article body." for i in range(1, 40))
+    html = (
+        f"<html><head><title>Rich Article</title></head><body><article><h1>A Real Article Title</h1>"
+        f"<p>{paragraph}</p>{_article_with_multiline_pre()}<p>{paragraph}</p></article></body></html>"
+    )
+    # trafilatura's own real flattening only manifests at the scale/complexity of an actual
+    # large docs page (see `_article_with_multiline_pre`'s docstring) — mocked here to exercise
+    # extract_content's wiring to `_dropped_multiline_code` without needing that scale in a test.
+    flattened = "A Real Article Title. " + paragraph + " line 1 of code here line 2 of code here " + paragraph
+
+    with patch("app.ingestion.extractor.trafilatura.extract", return_value=flattened), \
+         patch("app.ingestion.extractor.load_config", return_value="fake-config"), \
+         patch("app.ingestion.extractor.build_provider", return_value=fake_provider) as mock_build_provider:
+        result = extract_content(html, "https://example.com/rich", tmp_path)
+
+    assert result == fake_provider.complete.return_value
+    mock_build_provider.assert_called_once()
+
+
+def test_resolve_relative_urls_resolves_image_and_link_targets():
+    markdown = (
+        "![Self-evolving loop](/cookbook/assets/images/baseline_agent.png)\n\n"
+        "See the [docs](/cookbook/docs) for more, or the "
+        "[external site](https://other.example.com/already-absolute)."
+    )
+    resolved = _resolve_relative_urls(markdown, "https://developers.openai.com/cookbook/examples/foo")
+
+    assert "](https://developers.openai.com/cookbook/assets/images/baseline_agent.png)" in resolved
+    assert "](https://developers.openai.com/cookbook/docs)" in resolved
+    # Already-absolute URLs pass through unchanged (urljoin is a no-op on them).
+    assert "](https://other.example.com/already-absolute)" in resolved
+
+
+def test_extract_content_resolves_relative_image_urls_from_ai_fallback(tmp_path: Path):
+    fake_provider = MagicMock()
+    fake_provider.complete.return_value = "# Rich\n\n![diagram](/assets/diagram.png)"
+
+    with patch("app.ingestion.extractor.load_config", return_value="fake-config"), \
+         patch("app.ingestion.extractor.build_provider", return_value=fake_provider):
+        result = extract_content(_thin_html(), "https://example.com/some/page", tmp_path)
+
+    assert result == "# Rich\n\n![diagram](https://example.com/assets/diagram.png)"
+
+
+def test_extract_content_raises_when_ai_extractor_finds_no_content(tmp_path: Path):
+    # A refusal like "I don't see an article body here..." reads exactly like any other
+    # successful extraction (long prose) — only the sentinel the prompt asks for on purpose
+    # lets us tell a real failure apart from real content and avoid persisting the refusal
+    # text itself as the source's content.
+    fake_provider = MagicMock()
+    fake_provider.complete.return_value = "NO_CONTENT_FOUND"
+
+    with patch("app.ingestion.extractor.load_config", return_value="fake-config"), \
+         patch("app.ingestion.extractor.build_provider", return_value=fake_provider):
+        with pytest.raises(ExtractionFailedError):
+            extract_content(_thin_html(), "https://example.com/thin", tmp_path)
 
 
 def test_extract_content_uses_trafilatura_when_extraction_is_long_enough(tmp_path: Path):

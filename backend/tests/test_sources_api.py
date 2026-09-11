@@ -10,6 +10,7 @@ from app.graph_store.store import (
     link_concept_highlight,
     link_concept_source,
 )
+from app.ingestion.extractor import ExtractionFailedError
 from app.main import app
 from app.providers.base import ProviderError, ProviderTimeoutError
 from app.repositories.config_repository import ConfigError
@@ -167,6 +168,27 @@ def test_create_source_from_url_extraction_provider_timeout_returns_504(tmp_path
 
     assert response.status_code == 504
     assert response.json()["error_type"] == "timeout"
+
+
+def test_create_source_from_url_extraction_no_content_returns_422(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "app.routers.sources.fetch_url",
+        lambda url: "<html><head><title>T</title></head><body>nav only</body></html>",
+    )
+
+    def _raise_no_content(html, url, data_root):
+        raise ExtractionFailedError("no article content found")
+
+    monkeypatch.setattr("app.routers.sources.extract_content", _raise_no_content)
+
+    response = client.post("/sources", json={"url": "https://example.com/spa-shell"})
+
+    assert response.status_code == 422
+    assert response.json()["error_type"] == "no_content"
+    # A rejected extraction must not leave a source directory behind — otherwise a retry after
+    # fixing the underlying capture is blocked by find_duplicate_source matching this garbage.
+    assert not (tmp_path / "library").exists() or not any((tmp_path / "library").iterdir())
 
 
 def test_create_source_missing_title_or_content_without_url_returns_400(tmp_path: Path, monkeypatch):
@@ -331,6 +353,24 @@ def test_preview_triage_extraction_provider_timeout_returns_504(tmp_path: Path, 
 
     assert response.status_code == 504
     assert response.json()["error_type"] == "timeout"
+
+
+def test_preview_triage_extraction_no_content_returns_422(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    (tmp_path / "config.json").write_text('{"strategy": "api-key", "provider": "anthropic", "api_key": "fake"}')
+
+    def _raise_no_content(html, url, data_root):
+        raise ExtractionFailedError("no article content found")
+
+    monkeypatch.setattr("app.routers.sources.extract_content", _raise_no_content)
+
+    response = client.post(
+        "/sources/preview-triage",
+        json={"url": "https://example.com/spa-shell", "html": "<html><body>nav only</body></html>"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error_type"] == "no_content"
 
 
 def test_preview_triage_triage_failure_returns_502(tmp_path: Path, monkeypatch):
