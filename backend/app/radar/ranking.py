@@ -29,12 +29,21 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 def coarse_filter(
     graph_db_path: Path, embeddings_api_key: str, items: list[dict], boost_terms: list[str], top_n: int = 20,
-    embeddings_model: str = DEFAULT_EMBEDDINGS_MODEL,
-) -> list[dict]:
+    embeddings_model: str = DEFAULT_EMBEDDINGS_MODEL, return_rejected: bool = False,
+) -> list[dict] | tuple[list[dict], list[dict]]:
     """Scores each item by the best of: its similarity to the nearest
     concept-graph concept, or its similarity to any boost topic. Returns the
     top_n items sorted by that score descending, each with a _coarse_score
-    field attached."""
+    field attached.
+
+    `return_rejected` defaults to False so every existing caller keeps its
+    original contract (a plain list) untouched. Pass True to additionally get
+    back every item that scored below the top_n cutoff, as (shortlist,
+    rejected) — app.radar.pipeline uses this to persist those losers instead
+    of silently discarding them, so they're not re-embedded (this function's
+    only real cost) on every future run. See docs/learning-notes.md's
+    2026-09-11 "Function / API contract" entry for why this was added as a
+    new parameter rather than changing the return shape outright."""
     boost_embeddings = [embed_text(embeddings_api_key, term, model=embeddings_model) for term in boost_terms]
 
     scored = []
@@ -53,4 +62,6 @@ def coarse_filter(
         scored.append({**item, "_coarse_score": best})
 
     scored.sort(key=lambda i: i["_coarse_score"], reverse=True)
+    if return_rejected:
+        return scored[:top_n], scored[top_n:]
     return scored[:top_n]

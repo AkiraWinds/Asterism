@@ -64,13 +64,16 @@ def refresh_radar(
          abort the run for other sources.
       2. Coarse-filter the COMBINED candidate pool from every source ONCE,
          then fetch full content + LLM-judge just that one shortlist (at
-         most top_n items total per run, not top_n per source). Items whose
-         judged relevance falls below RADAR_RELEVANCE_FLOOR are persisted
-         with status='rejected' (excluded from GET /radar, but kept for
-         cross-run dedup) rather than dropped. A per-item failure is logged and skipped; a
-         systemic provider misconfiguration surfaced while judging is
-         additionally recorded against that item's source for visibility,
-         but still doesn't stop the rest of the shortlist from being judged.
+         most top_n items total per run, not top_n per source). Items below
+         the coarse-filter's top-N cutoff, and items whose judged relevance
+         falls below RADAR_RELEVANCE_FLOOR, are both persisted with
+         status='rejected' (excluded from GET /radar, but kept for cross-run
+         dedup so a losing candidate isn't re-embedded/re-judged on a future
+         run) rather than dropped. A per-item content-fetch/judgment failure
+         is logged and skipped; a systemic provider misconfiguration
+         surfaced while judging is additionally recorded against that item's
+         source for visibility, but still doesn't stop the rest of the
+         shortlist from being judged.
     """
     db_path = radar_db_path(data_root)
     init_db(db_path)
@@ -118,10 +121,36 @@ def refresh_radar(
     # means no items get judged this run; the pass-1 fetch-status bookkeeping
     # above is unaffected.
     try:
-        shortlist = coarse_filter(g_db_path, embeddings_api_key, combined_items, boost_terms, embeddings_model=embeddings_model)
+        shortlist, below_cut = coarse_filter(
+            g_db_path, embeddings_api_key, combined_items, boost_terms,
+            embeddings_model=embeddings_model, return_rejected=True,
+        )
     except Exception as exc:  # noqa: BLE001 - a run-level coarse-filter failure must not abort the run or discard pass-1 results
         logger.warning("Radar coarse filter failed error=%s", exc)
-        shortlist = []
+        shortlist, below_cut = [], []
+
+    # Items that got embedded but didn't make the top-N cut are candidates
+    # forever unless persisted here — without this, they'd be re-fetched,
+    # re-embedded, and re-scored on every future run (they're never added to
+    # list_all_radar_item_urls's dedup set otherwise), competing anew each
+    # time against whatever else was fetched that run. Persisting them as
+    # 'rejected' (same status the RADAR_RELEVANCE_FLOOR case below uses)
+    # keeps them out of GET /radar while making them permanently dedup'd.
+    for item in below_cut:
+        insert_radar_item(
+            db_path,
+            item_id=uuid.uuid4().hex[:12],
+            source_id=item["_source_id"],
+            url=item["url"],
+            title=item["title"],
+            summary=item.get("summary", ""),
+            published_at=item.get("published_at"),
+            relevance_score=item["_coarse_score"],
+            quality_score=0.0,
+            reasoning="Not shortlisted for LLM review this run (coarse embedding similarity below the top-N cutoff).",
+            created_at=_now_iso(),
+            status="rejected",
+        )
 
     for item in shortlist:
         source_name = item["_source_name"]
