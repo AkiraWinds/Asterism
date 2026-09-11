@@ -44,6 +44,27 @@ def _article_with_svg_diagram_dropped_by_trafilatura() -> str:
     )
 
 
+def _article_with_decorative_header_svg_logo() -> str:
+    # A header/nav logo <img src="*.svg"> sits *outside* <main>/<article>, ahead of the real
+    # content in DOM order — the exact shape of docs sites like the OpenAI cookbook. It's
+    # legitimately absent from trafilatura's markdown (it's chrome, not content) and must not
+    # be mistaken for a dropped content image.
+    paragraph = " ".join(f"This is sentence number {i} in a long article body." for i in range(1, 40))
+    header = '<header><img alt="logo" src="https://example.com/logo.svg"/><nav>site nav</nav></header>'
+    return (
+        f"<html><head><title>Rich Article</title></head><body>{header}"
+        f"<main><article><h1>A Real Article Title</h1><p>{paragraph}</p></article></main></body></html>"
+    )
+
+
+def test_extract_content_ignores_decorative_svg_outside_main_content(tmp_path: Path):
+    with patch("app.ingestion.extractor.build_provider") as mock_build_provider:
+        result = extract_content(_article_with_decorative_header_svg_logo(), "https://example.com/rich", tmp_path)
+
+    assert "A Real Article Title" in result
+    mock_build_provider.assert_not_called()
+
+
 def test_extract_content_uses_trafilatura_when_extraction_is_long_enough(tmp_path: Path):
     with patch("app.ingestion.extractor.build_provider") as mock_build_provider:
         result = extract_content(_rich_article_html(), "https://example.com/rich", tmp_path)
