@@ -1,7 +1,9 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.ingestion.extractor import extract_content
+import pytest
+
+from app.ingestion.extractor import ExtractionFailedError, extract_content
 
 
 def _rich_article_html() -> str:
@@ -63,6 +65,20 @@ def test_extract_content_ignores_decorative_svg_outside_main_content(tmp_path: P
 
     assert "A Real Article Title" in result
     mock_build_provider.assert_not_called()
+
+
+def test_extract_content_raises_when_ai_extractor_finds_no_content(tmp_path: Path):
+    # A refusal like "I don't see an article body here..." reads exactly like any other
+    # successful extraction (long prose) — only the sentinel the prompt asks for on purpose
+    # lets us tell a real failure apart from real content and avoid persisting the refusal
+    # text itself as the source's content.
+    fake_provider = MagicMock()
+    fake_provider.complete.return_value = "NO_CONTENT_FOUND"
+
+    with patch("app.ingestion.extractor.load_config", return_value="fake-config"), \
+         patch("app.ingestion.extractor.build_provider", return_value=fake_provider):
+        with pytest.raises(ExtractionFailedError):
+            extract_content(_thin_html(), "https://example.com/thin", tmp_path)
 
 
 def test_extract_content_uses_trafilatura_when_extraction_is_long_enough(tmp_path: Path):

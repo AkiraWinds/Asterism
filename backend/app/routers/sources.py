@@ -22,7 +22,7 @@ from app.graph_store.store import (
     graph_db_path,
     init_db,
 )
-from app.ingestion.extractor import extract_content
+from app.ingestion.extractor import ExtractionFailedError, extract_content
 from app.ingestion.fetcher import (
     FetchBlockedError,
     FetchError,
@@ -149,6 +149,9 @@ def create_source_endpoint(payload: SourceCreateRequest):
                 "Ingestion extraction provider error url=%s type=%s", payload.url, type(exc).__name__
             )
             return _error_response(502, "error", str(exc))
+        except ExtractionFailedError as exc:
+            logger.warning("Ingestion extraction found no content url=%s", payload.url)
+            return _error_response(422, "no_content", str(exc))
 
         try:
             record = create_source_from_url(data_root, payload.url, title, html, content)
@@ -220,6 +223,9 @@ def preview_triage_endpoint(payload: SourceCreateRequest):
     except ProviderError as exc:
         logger.warning("Preview-triage extraction provider error url=%s type=%s", payload.url, type(exc).__name__)
         return _error_response(502, "error", str(exc))
+    except ExtractionFailedError as exc:
+        logger.warning("Preview-triage extraction found no content url=%s", payload.url)
+        return _error_response(422, "no_content", str(exc))
 
     state: AnalysisState = {"title": title, "content": content, "config": config, "data_root": data_root}
     try:

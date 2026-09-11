@@ -9,6 +9,16 @@ from app.repositories.config_repository import load_config
 MIN_LENGTH = 500
 MAX_HTML_CHARS = 120_000
 
+# A literal sentinel the AI extractor is instructed to return verbatim when the HTML it was
+# given has no article to extract, instead of prose explaining why. Without this, a model's
+# refusal text ("I don't see an article body here...") reads exactly like any other successful
+# extraction — MIN_LENGTH-worthy prose — and gets silently persisted as the source's content
+# (see AGENTS.md: caught live when _main_content_region's fix above still left an AI-fallback
+# path that could see a genuinely content-free page). Checking for a fixed token the model
+# emits on purpose is a real signal; grepping its prose for refusal-sounding phrases across
+# providers/models would not be.
+NO_CONTENT_SENTINEL = "NO_CONTENT_FOUND"
+
 EXTRACTION_PROMPT_TEMPLATE = (
     "Extract the main readable article content from the following HTML and return "
     "it as clean Markdown. Preserve headings, paragraphs, images, and tables where "
@@ -18,8 +28,17 @@ EXTRACTION_PROMPT_TEMPLATE = (
     "using that img's actual src — never replace an image with a text description or "
     "placeholder caption. Preserve every <table> as a Markdown pipe table with the "
     "same rows/columns — never drop a table or summarize it as prose. Return only the "
-    "Markdown, no commentary.\n\nHTML:\n{html}"
+    f"Markdown, no commentary. If (and only if) this HTML has no article/content body to "
+    f"extract — e.g. it's only a header, navigation, or search UI — respond with exactly "
+    f"{NO_CONTENT_SENTINEL} and nothing else, rather than explaining why.\n\nHTML:\n{{html}}"
 )
+
+
+class ExtractionFailedError(Exception):
+    """Raised when the AI extractor reports (via NO_CONTENT_SENTINEL) that the given HTML has
+    no article content — e.g. a capture taken before an SPA finished rendering. Callers should
+    surface this as a real ingestion failure rather than persisting the sentinel/prose as
+    content, which would otherwise dedupe every future re-capture attempt against garbage."""
 
 # trafilatura has two verified blind spots that silently drop real content while
 # still returning a "long enough" result, so the length check below can't catch them:
@@ -87,4 +106,11 @@ def extract_content(html: str, url: str, data_root: Path) -> str:
     prompt = EXTRACTION_PROMPT_TEMPLATE.format(html=_main_content_region(html)[:MAX_HTML_CHARS])
     config = load_config(data_root)
     provider = build_provider(config, data_root)
-    return provider.complete(prompt)
+    result = provider.complete(prompt)
+    if result.strip() == NO_CONTENT_SENTINEL:
+        raise ExtractionFailedError(
+            "The AI extractor found no article content in the captured HTML — the page may "
+            "not have finished loading before it was captured. Try reloading the page and "
+            "capturing again."
+        )
+    return result
