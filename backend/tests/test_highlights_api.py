@@ -27,7 +27,7 @@ def _stub_extraction(monkeypatch, term="AI-first triage", definition="AI process
         '"self_relevant": false}]'
     )
     monkeypatch.setattr("app.routers.sources.build_provider", lambda config, data_root: provider)
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
 
 
 def test_get_highlights_returns_empty_when_none_saved(tmp_path: Path, monkeypatch):
@@ -137,7 +137,7 @@ def test_patch_highlight_updates_note_and_reruns_extraction(tmp_path: Path, monk
         '"confidence": "high", "relationship": "none", "summary": "distinct concept"}]',
     ]
     monkeypatch.setattr("app.routers.sources.build_provider", lambda config, data_root: provider)
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
 
     response = client.patch(
         f"/sources/{source_id}/highlights/{highlight_id}", json={"note": "a new note"}

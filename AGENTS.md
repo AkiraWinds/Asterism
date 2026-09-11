@@ -39,10 +39,11 @@ A single `Provider` interface (`base.py`) with 4 implementations, selected by `c
   "strategy": "cli",
   "provider": "claude",
   "api_key": null,
-  "embeddings_api_key": "sk-..."
+  "embeddings_api_key": "sk-...",
+  "embeddings_model": "text-embedding-3-small"
 }
 ```
-`strategy` is `"cli"` or `"api-key"`; `provider` must match the strategy (see `CLI_PROVIDERS`/`API_KEY_PROVIDERS` in `config_repository.py`). `embeddings_api_key` is separate and always required for the knowledge graph feature — Anthropic has no embeddings endpoint and CLI providers can't embed at all, so embedding calls always go to OpenAI directly regardless of the chat/completion provider chosen above.
+`strategy` is `"cli"` or `"api-key"`; `provider` must match the strategy (see `CLI_PROVIDERS`/`API_KEY_PROVIDERS` in `config_repository.py`). `embeddings_api_key` is separate and always required for the knowledge graph feature — Anthropic has no embeddings endpoint and CLI providers can't embed at all, so embedding calls always go to OpenAI directly regardless of the chat/completion provider chosen above. `embeddings_model` is optional (defaults to `text-embedding-3-small`, see `config_repository.DEFAULT_EMBEDDINGS_MODEL`) — change it only on a library with no concepts yet: OpenAI's embedding models aren't dimension-/space-compatible with each other, so switching mid-graph desyncs `nearest_neighbors` similarity scoring against every embedding stored under the old model, and nothing currently re-embeds existing concepts on a config change.
 
 Keep provider-specific spawn/protocol details (e.g. Codex's `app-server --stdio` lifecycle) inside the provider layer — core app code calls the shared `Provider` interface, never `claude`/`codex` directly.
 

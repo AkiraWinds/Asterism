@@ -81,6 +81,36 @@ def load_embeddings_api_key(data_root: Path) -> str:
     return api_key
 
 
+DEFAULT_EMBEDDINGS_MODEL = "text-embedding-3-small"
+
+
+def load_embeddings_model(data_root: Path) -> str:
+    """OpenAI embedding model id, independent of load_embeddings_api_key.
+    Optional — same loosely-read precedent as load_brave_api_key/
+    load_font_scale: a missing file, invalid JSON, or missing/blank field all
+    fall back to DEFAULT_EMBEDDINGS_MODEL rather than raising, since almost
+    no one needs to change this. Deliberately NOT validated against a fixed
+    enum of known OpenAI model ids — new embedding models ship over time and
+    hardcoding a whitelist here would just need updating every time one does.
+
+    Changing this on a library with existing concepts is a real trap: every
+    stored embedding was produced by whatever model was configured at write
+    time, and OpenAI's embedding models are not dimension- or space-
+    compatible with each other, so mixing models mid-graph silently produces
+    meaningless cosine similarity scores. Nothing currently re-embeds
+    existing concepts on a config change — treat this as "set once before
+    the graph has data" until a re-embedding migration exists.
+    """
+    config_path = data_root / "config.json"
+    if not config_path.exists():
+        return DEFAULT_EMBEDDINGS_MODEL
+    try:
+        data = json.loads(config_path.read_text())
+    except json.JSONDecodeError:
+        return DEFAULT_EMBEDDINGS_MODEL
+    return data.get("embeddings_model") or DEFAULT_EMBEDDINGS_MODEL
+
+
 def load_brave_api_key(data_root: Path) -> str | None:
     """Optional — unlike load_config/load_embeddings_api_key, a missing key
     here is not an error: it means the extraction/watchlist resolution chain

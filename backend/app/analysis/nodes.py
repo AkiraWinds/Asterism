@@ -10,12 +10,12 @@ from app.analysis.prompts import (
     build_triage_prompt,
 )
 from app.analysis.state import AnalysisState
+from app.constants import MAX_ATTEMPTS
 from app.providers.base import ProviderConfigError, ProviderError, ProviderMissingError
 from app.providers.factory import build_provider
 from app.schemas.analysis import Claim, Concept, Critique, Digest, Highlight, Triage
 
 MAX_CONTENT_CHARS = 20_000
-MAX_ATTEMPTS = 2
 
 
 def _complete_with_retry(state: AnalysisState, prompt: str) -> dict:

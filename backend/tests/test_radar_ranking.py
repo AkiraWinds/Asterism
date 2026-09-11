@@ -24,7 +24,7 @@ def test_coarse_filter_ranks_by_similarity_and_truncates(tmp_path: Path, monkeyp
     # nearest_neighbors and embed_text are both stubbed so no real network/graph.db lookups happen.
     monkeypatch.setattr(
         "app.radar.ranking.embed_text",
-        lambda api_key, text: [0.9] if "close" in text else [0.1],
+        lambda api_key, text, **_kwargs: [0.9] if "close" in text else [0.1],
     )
     monkeypatch.setattr(
         "app.radar.ranking.nearest_neighbors",

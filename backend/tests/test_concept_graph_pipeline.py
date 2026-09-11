@@ -632,7 +632,7 @@ def test_process_source_concepts_retry_does_not_duplicate_provenance_row(tmp_pat
 
 
 def test_promote_concept_creates_new_node_when_no_neighbors(tmp_path, monkeypatch):
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
     provider = MagicMock()
     highlight = Highlight(
         id="h_1", source_quote="AI processes information faster than humans.",
@@ -649,7 +649,7 @@ def test_promote_concept_creates_new_node_when_no_neighbors(tmp_path, monkeypatc
 
 
 def test_promote_concept_stores_self_relevant_true(tmp_path, monkeypatch):
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
     provider = MagicMock()
     highlight = Highlight(id="h_1", source_quote="def", source_title="T", created_at="2026-08-01T00:00:00Z")
     concept = Concept(id="c1", term="term", definition="def")
@@ -670,7 +670,7 @@ def test_new_concept_uses_web_search_result_when_available(tmp_path, monkeypatch
     # the `if not neighbors:` short-circuit in _dedupe_and_insert is the "new
     # concept" path exercised here (same path as
     # test_process_highlight_creates_new_concept_when_no_neighbors_exist).
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
     monkeypatch.setattr(
         "app.concept_graph.pipeline.search_web",
         lambda api_key, query, count=3: [
@@ -695,7 +695,7 @@ def test_new_concept_uses_web_search_result_when_available(tmp_path, monkeypatch
 
 
 def test_new_concept_keeps_extraction_definition_when_no_brave_key(tmp_path, monkeypatch):
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
     search_web_mock = MagicMock()
     monkeypatch.setattr("app.concept_graph.pipeline.search_web", search_web_mock)
     provider = MagicMock()
@@ -714,7 +714,7 @@ def test_new_concept_keeps_extraction_definition_when_no_brave_key(tmp_path, mon
 
 
 def test_new_concept_keeps_extraction_definition_when_web_search_returns_nothing(tmp_path, monkeypatch):
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
     monkeypatch.setattr("app.concept_graph.pipeline.search_web", lambda api_key, query, count=3: [])
     provider = MagicMock()
     provider.complete.return_value = json.dumps([
@@ -738,7 +738,7 @@ def test_grounded_concept_persists_embedding_computed_from_grounded_definition(t
     # regression by using an embed_text stub whose output depends on its
     # input text, so a mismatch between persisted definition and persisted
     # embedding is detectable.
-    def fake_embed_text(api_key, text):
+    def fake_embed_text(api_key, text, **_kwargs):
         return [float(len(text)), 0.0]
 
     monkeypatch.setattr("app.concept_graph.pipeline.embed_text", fake_embed_text)
@@ -776,7 +776,7 @@ def test_self_relevant_new_concept_skips_web_search_grounding(tmp_path, monkeypa
     # project/work, so grounding them via web search risks replacing a
     # correct extraction-time definition with an unrelated one (e.g.
     # "Asterism" the project vs. the star cluster).
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
     search_web_mock = MagicMock(return_value=[
         {"title": "t", "url": "https://example.com", "description": "unrelated grounded description"}
     ])
@@ -806,7 +806,7 @@ def test_related_distinct_new_concept_is_grounded_via_web_search(tmp_path, monke
     from app.graph_store.store import insert_concept
     insert_concept(db_path, "c_existing", "Local-first storage", "Filesystem is source of truth.", [0.1, 0.2], False, "2026-07-30T00:00:00Z")
 
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.21])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.21])
     monkeypatch.setattr(
         "app.concept_graph.pipeline.search_web",
         lambda api_key, query, count=3: [

@@ -33,7 +33,7 @@ from app.radar_store.store import (
     update_feed_source,
     update_radar_item_status,
 )
-from app.repositories.config_repository import ConfigError, load_config, load_embeddings_api_key
+from app.repositories.config_repository import ConfigError, load_config, load_embeddings_api_key, load_embeddings_model
 from app.repositories.source_repository import create_source_from_url
 from app.schemas.radar import (
     BoostTopic,
@@ -131,13 +131,14 @@ def post_refresh_endpoint() -> RadarRefreshSummary:
     try:
         config = load_config(data_root)
         embeddings_api_key = load_embeddings_api_key(data_root)
+        embeddings_model = load_embeddings_model(data_root)
     except ConfigError as exc:
         # Same failure mode as the CLI twin (scripts/radar_refresh.py), which
         # catches this and reports it as a JSON error rather than crashing —
         # both entry points to the same operation should degrade the same way.
         raise HTTPException(status_code=400, detail=str(exc))
     provider = build_provider(config, data_root)
-    summary = refresh_radar(data_root, provider, embeddings_api_key)
+    summary = refresh_radar(data_root, provider, embeddings_api_key, embeddings_model=embeddings_model)
     return RadarRefreshSummary(per_source=summary)
 
 

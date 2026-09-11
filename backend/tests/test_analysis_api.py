@@ -158,7 +158,7 @@ def test_analyze_populates_concept_graph_from_digest_concepts(tmp_path: Path, mo
     )
     monkeypatch.setattr("app.analysis.nodes.build_provider", lambda config, data_root: provider)
     monkeypatch.setattr("app.routers.sources.build_provider", lambda config, data_root: provider)
-    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text: [0.1, 0.2])
+    monkeypatch.setattr("app.concept_graph.pipeline.embed_text", lambda api_key, text, **_kwargs: [0.1, 0.2])
 
     response = client.post(f"/sources/{source_id}/analyze")
 

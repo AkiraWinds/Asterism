@@ -18,7 +18,7 @@ def test_resolve_matches_existing_concept_above_threshold(tmp_path: Path, monkey
     insert_concept(db_path, "c_1", "Agentic AI", "Existing grounded definition.", [1.0, 0.0], False, "2026-08-01T00:00:00Z")
     insert_watchlist_entry(db_path, "w_1", "Agentic AI", "2026-08-01T00:00:00Z")
 
-    monkeypatch.setattr("app.watchlist.resolver.embed_text", lambda api_key, text: [1.0, 0.0])
+    monkeypatch.setattr("app.watchlist.resolver.embed_text", lambda api_key, text, **_kwargs: [1.0, 0.0])
 
     entry = resolve_watchlist_entry(tmp_path, "w_1", _StubProvider("unused"), "fake-embed-key", None)
 
@@ -31,7 +31,7 @@ def test_resolve_falls_back_to_web_search_when_no_graph_match(tmp_path: Path, mo
     init_db(db_path)
     insert_watchlist_entry(db_path, "w_1", "Some brand new term", "2026-08-01T00:00:00Z")
 
-    monkeypatch.setattr("app.watchlist.resolver.embed_text", lambda api_key, text: [0.0, 1.0])
+    monkeypatch.setattr("app.watchlist.resolver.embed_text", lambda api_key, text, **_kwargs: [0.0, 1.0])
     monkeypatch.setattr(
         "app.watchlist.resolver.search_web",
         lambda api_key, query, count=3: [{"title": "t", "url": "https://example.com", "description": "A grounded web definition."}],
@@ -61,7 +61,7 @@ def test_resolve_does_not_match_golden_concept_boosted_above_threshold_by_true_s
     )
     insert_watchlist_entry(db_path, "w_1", "Agentic AI", "2026-08-01T00:00:00Z")
 
-    monkeypatch.setattr("app.watchlist.resolver.embed_text", lambda api_key, text: [1.0, 0.0])
+    monkeypatch.setattr("app.watchlist.resolver.embed_text", lambda api_key, text, **_kwargs: [1.0, 0.0])
 
     entry = resolve_watchlist_entry(tmp_path, "w_1", _StubProvider("An LLM-drafted definition."), "fake-embed-key", None)
 
@@ -76,7 +76,7 @@ def test_resolve_falls_back_to_llm_reasoning_when_no_match_and_no_web_key(tmp_pa
     init_db(db_path)
     insert_watchlist_entry(db_path, "w_1", "Some brand new term", "2026-08-01T00:00:00Z")
 
-    monkeypatch.setattr("app.watchlist.resolver.embed_text", lambda api_key, text: [0.0, 1.0])
+    monkeypatch.setattr("app.watchlist.resolver.embed_text", lambda api_key, text, **_kwargs: [0.0, 1.0])
 
     entry = resolve_watchlist_entry(tmp_path, "w_1", _StubProvider("An LLM-drafted definition."), "fake-embed-key", None)
 
