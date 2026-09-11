@@ -107,9 +107,28 @@ export interface GraphEdge {
   summary: string;
 }
 
+export interface GraphViewNode {
+  id: string;
+  kind: "concept" | "source" | "wiki";
+  term: string;
+  definition: string | null;
+  self_relevant: boolean;
+  golden: boolean;
+  is_aspect: boolean;
+}
+
+export interface GraphViewEdge {
+  id: string;
+  from_id: string;
+  to_id: string;
+  kind: "concept_relation" | "source_link" | "wiki_link" | "aspect_link";
+  type: "related" | "contradicts" | "extends" | null;
+  summary: string;
+}
+
 export interface GraphData {
-  nodes: GraphConceptNode[];
-  edges: GraphEdge[];
+  nodes: GraphViewNode[];
+  edges: GraphViewEdge[];
 }
 
 export interface HighlightProcessResult {
@@ -363,6 +382,19 @@ export async function getWikiPageBySlug(slug: string): Promise<WikiPage | null> 
   const res = await fetch(`${BACKEND_URL}/wiki/pages/by-slug/${slug}`, { cache: "no-store" });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load wiki page"));
+  return res.json();
+}
+
+export interface SourcePreview {
+  id: string;
+  title: string;
+  type: string;
+  preview_text: string;
+}
+
+export async function getSourcePreview(sourceId: string): Promise<SourcePreview> {
+  const res = await fetch(`${BACKEND_URL}/sources/${sourceId}/preview`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to load source preview"));
   return res.json();
 }
 

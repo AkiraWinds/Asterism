@@ -395,6 +395,18 @@ def read_source_url(data_root: Path, source_id: str) -> str | None:
     return meta.get("source_url")
 
 
+def read_source_type(data_root: Path, source_id: str) -> str | None:
+    """Read meta.json's `type` field ("html" for URL ingestion via
+    create_source_from_url, "text" for plain-text/note creation via
+    create_source) — present on every source. Returns None if the source
+    doesn't exist. Mirrors read_source_url's single-field read."""
+    meta_path = data_root / "library" / source_id / "meta.json"
+    if not meta_path.exists():
+        return None
+    meta = json.loads(meta_path.read_text())
+    return meta.get("type")
+
+
 def update_highlight_note(data_root: Path, source_id: str, highlight_id: str, note: str | None) -> Highlight | None:
     """Update one highlight's note in place, returning the updated Highlight,
     or None if no highlight with that id exists. A single editable note field,

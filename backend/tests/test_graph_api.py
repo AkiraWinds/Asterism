@@ -185,3 +185,15 @@ def test_resolve_returns_404_for_unknown_entry(tmp_path: Path, monkeypatch):
     response = client.post("/graph/review-queue/does-not-exist/resolve", json={"action": "merge"})
 
     assert response.status_code == 404
+
+
+def test_get_graph_includes_kind_field_on_concept_nodes(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASTERISM_DATA_ROOT", str(tmp_path))
+    db_path = graph_db_path(tmp_path)
+    init_db(db_path)
+    insert_concept(db_path, "c_1", "RAG", "def", [0.1], False, "2026-09-10T00:00:00Z")
+
+    response = client.get("/graph")
+
+    assert response.status_code == 200
+    assert response.json()["nodes"][0]["kind"] == "concept"

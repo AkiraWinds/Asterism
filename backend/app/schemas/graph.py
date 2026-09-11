@@ -28,9 +28,39 @@ class Edge(BaseModel):
     summary: str
 
 
+class GraphNode(BaseModel):
+    """One node in the GET /graph response — a concept, a source, or a wiki
+    page/aspect. Distinct from ConceptNode (above): ConceptNode is the
+    per-highlight-processing result type used by POST /sources/{id}/highlights
+    and is unrelated to this endpoint. See
+    docs/superpowers/specs/2026-09-10-graph-multi-entity-view-design.md.
+    """
+
+    id: str
+    kind: Literal["concept", "source", "wiki"]
+    term: str
+    definition: str | None = None  # concept-only
+    self_relevant: bool = False    # concept-only
+    golden: bool = False           # concept-only
+    is_aspect: bool = False        # wiki-only: True for an aspect sub-page node
+
+
+class GraphEdge(BaseModel):
+    """One edge in the GET /graph response. `type` (related/contradicts/
+    extends) is set only when kind == 'concept_relation'; the three
+    structural edge kinds (source_link/wiki_link/aspect_link) leave it None."""
+
+    id: str
+    from_id: str
+    to_id: str
+    kind: Literal["concept_relation", "source_link", "wiki_link", "aspect_link"]
+    type: str | None = None
+    summary: str = ""
+
+
 class GraphResponse(BaseModel):
-    nodes: list[ConceptNode]
-    edges: list[Edge]
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
 
 
 class ReviewQueueEntry(BaseModel):

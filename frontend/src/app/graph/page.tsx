@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ConceptGraphView } from "@/components/ConceptGraphView";
 import { ReviewQueuePanel } from "@/components/ReviewQueuePanel";
-import { WikiPagePanel } from "@/components/WikiPagePanel";
+import { GraphNodePanel } from "@/components/GraphNodePanel";
 import { GraphData } from "@/lib/api";
 
 export default function GraphPage() {
@@ -27,7 +27,7 @@ export default function GraphPage() {
             setGraphVersion((v) => v + 1);
             // A resolved merge may have removed the currently-selected
             // concept from graph.db entirely — drop the selection so
-            // WikiPagePanel doesn't keep showing a concept that no longer
+            // GraphNodePanel doesn't keep showing a concept that no longer
             // exists (its fetch effect keys on node identity, not on
             // graphVersion, so it wouldn't otherwise know to refetch).
             setSelectedNode(null);
@@ -39,7 +39,7 @@ export default function GraphPage() {
           <ConceptGraphView key={graphVersion} onSelectNode={setSelectedNode} />
         </div>
         <div className="lg:col-span-3">
-          <WikiPagePanel node={selectedNode} />
+          <GraphNodePanel node={selectedNode} />
         </div>
       </div>
     </main>

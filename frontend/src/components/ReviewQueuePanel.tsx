@@ -7,7 +7,7 @@
 // alongside the queue to resolve human-readable labels for both sides.
 import { useEffect, useState } from "react";
 import {
-  GraphConceptNode,
+  GraphViewNode,
   ReviewQueueEntry,
   getGraph,
   getReviewQueue,
@@ -16,7 +16,7 @@ import {
 
 export function ReviewQueuePanel({ onResolved }: { onResolved?: () => void }) {
   const [entries, setEntries] = useState<ReviewQueueEntry[] | null>(null);
-  const [nodesById, setNodesById] = useState<Map<string, GraphConceptNode>>(new Map());
+  const [nodesById, setNodesById] = useState<Map<string, GraphViewNode>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
 

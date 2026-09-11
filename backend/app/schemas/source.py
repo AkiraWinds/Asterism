@@ -26,6 +26,20 @@ class SourceSummaryResponse(BaseModel):
     read_at: str | None = None
 
 
+class SourcePreviewResponse(BaseModel):
+    """Lightweight preview for the graph view's source-node side panel.
+
+    For html sources this is the AI digest summary (or a fallback if not yet
+    analyzed); for text sources it's the raw note content itself, since
+    summarizing an already-concise user note adds no value.
+    """
+
+    id: str
+    title: str
+    type: str
+    preview_text: str
+
+
 class SourceDetailResponse(BaseModel):
     id: str
     title: str

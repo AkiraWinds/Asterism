@@ -131,7 +131,7 @@ def resolve_citations(data_root: Path, provenance: list[dict]) -> list[dict]:
     return citations
 
 
-def _resolve_aspects(wiki_dir: Path, aspect_slugs: list[str]) -> list[dict]:
+def resolve_aspects(wiki_dir: Path, aspect_slugs: list[str]) -> list[dict]:
     """slug -> {"slug", "term"} for each aspect slug recorded in an overview
     page's frontmatter. Tolerates a missing or unparseable aspect file (skips
     it) rather than failing the whole page lookup — same tolerance
@@ -168,7 +168,7 @@ def get_wiki_page_by_concept_id(wiki_dir: Path, concept_id: str) -> dict | None:
         "term": frontmatter.get("term", concept_id),
         "updated_at": frontmatter.get("updated_at", ""),
         "body": body,
-        "aspects": _resolve_aspects(wiki_dir, frontmatter.get("aspects", [])),
+        "aspects": resolve_aspects(wiki_dir, frontmatter.get("aspects", [])),
     }
 
 

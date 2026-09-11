@@ -58,6 +58,7 @@ from app.repositories.source_repository import (
     read_conversation,
     read_feedback,
     read_highlights,
+    read_source_type,
     read_source_url,
     update_highlight_note,
     upsert_feedback,
@@ -73,6 +74,7 @@ from app.schemas.reading_state import ReadingState
 from app.schemas.source import (
     SourceCreateRequest,
     SourceDetailResponse,
+    SourcePreviewResponse,
     SourceSummaryResponse,
     TriagePreviewResponse,
 )
@@ -259,6 +261,27 @@ def get_source_endpoint(source_id: str) -> SourceDetailResponse:
         id=record.id, title=record.title, created_at=record.created_at, content=record.content, analysis=analysis,
         read_at=record.read_at,
     )
+
+
+@router.get("/{source_id}/preview", response_model=SourcePreviewResponse)
+def get_source_preview_endpoint(source_id: str) -> SourcePreviewResponse:
+    data_root = get_data_root()
+    record = get_source(data_root, source_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    source_type = read_source_type(data_root, source_id) or "text"
+    if source_type == "html":
+        # html sources get an AI-generated digest summary; the note itself may
+        # be long/unstructured, so we don't fall back to raw content here.
+        analysis = read_analysis(data_root, source_id)
+        preview_text = analysis.digest.summary if analysis and analysis.digest else "Not analyzed yet."
+    else:
+        # text sources are already the user's own concise note — summarizing
+        # it would add no value, so the preview is the raw content. Strip the
+        # trailing newline content.md always gets written with (see
+        # create_source), matching how other endpoints treat record.content.
+        preview_text = record.content.strip()
+    return SourcePreviewResponse(id=record.id, title=record.title, type=source_type, preview_text=preview_text)
 
 
 @router.post("/{source_id}/read", response_model=ReadingState)
