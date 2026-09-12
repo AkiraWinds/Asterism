@@ -39,7 +39,9 @@ def test_refresh_radar_happy_path(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
     monkeypatch.setattr(
         "app.radar.pipeline.coarse_filter",
-        lambda graph_db_path, api_key, items, boost_terms, top_n=20, **_kwargs: [{**i, "_coarse_score": 0.9} for i in items],
+        lambda graph_db_path, api_key, items, boost_terms, top_n=20, return_rejected=False, **_kwargs: (
+            [{**i, "_coarse_score": 0.9} for i in items], []
+        ),
     )
     monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url: "<html>full article body</html>")
     monkeypatch.setattr("app.radar.pipeline.extract_content", lambda html, url, data_root: "full article body")
@@ -71,7 +73,7 @@ def test_refresh_radar_one_bad_source_does_not_block_others(tmp_path: Path, monk
 
     monkeypatch.setattr("app.radar.pipeline.fetch_feed_items", _fetch)
     monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
-    monkeypatch.setattr("app.radar.pipeline.coarse_filter", lambda *a, **k: [])
+    monkeypatch.setattr("app.radar.pipeline.coarse_filter", lambda *a, **k: ([], []))
 
     summary = refresh_radar(tmp_path, _StubProvider(), "fake-embed-key")
 
@@ -141,7 +143,7 @@ def test_refresh_radar_calls_coarse_filter_once_per_run_not_per_source(tmp_path:
 
     def _coarse_filter(graph_db_path, api_key, items, boost_terms, top_n=20, **_kwargs):
         call_count["n"] += 1
-        return [{**i, "_coarse_score": 0.9} for i in items]
+        return [{**i, "_coarse_score": 0.9} for i in items], []
 
     monkeypatch.setattr("app.radar.pipeline.fetch_feed_items", _fetch)
     monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
@@ -172,7 +174,7 @@ def test_refresh_radar_skips_items_below_relevance_floor(tmp_path: Path, monkeyp
     monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
     monkeypatch.setattr(
         "app.radar.pipeline.coarse_filter",
-        lambda graph_db_path, api_key, items, boost_terms, top_n=20, **_kwargs: [{**i, "_coarse_score": 0.0} for i in items],
+        lambda graph_db_path, api_key, items, boost_terms, top_n=20, **_kwargs: ([{**i, "_coarse_score": 0.0} for i in items], []),
     )
     monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url: "<html>full article body</html>")
     monkeypatch.setattr("app.radar.pipeline.extract_content", lambda html, url, data_root: "full article body")
@@ -201,7 +203,7 @@ def test_refresh_radar_persists_below_floor_items_as_rejected(tmp_path: Path, mo
     monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
     monkeypatch.setattr(
         "app.radar.pipeline.coarse_filter",
-        lambda graph_db_path, api_key, items, boost_terms, top_n=20, **_kwargs: [{**i, "_coarse_score": 0.0} for i in items],
+        lambda graph_db_path, api_key, items, boost_terms, top_n=20, **_kwargs: ([{**i, "_coarse_score": 0.0} for i in items], []),
     )
     monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url: "<html>full article body</html>")
     monkeypatch.setattr("app.radar.pipeline.extract_content", lambda html, url, data_root: "full article body")
@@ -241,7 +243,7 @@ def test_refresh_radar_judge_provider_missing_error_isolated_to_source(tmp_path:
     monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
     monkeypatch.setattr(
         "app.radar.pipeline.coarse_filter",
-        lambda graph_db_path, api_key, items, boost_terms, top_n=20, **_kwargs: [{**i, "_coarse_score": 0.9} for i in items],
+        lambda graph_db_path, api_key, items, boost_terms, top_n=20, **_kwargs: ([{**i, "_coarse_score": 0.9} for i in items], []),
     )
     monkeypatch.setattr("app.radar.pipeline.fetch_url", lambda url: "<html>full article body</html>")
     monkeypatch.setattr("app.radar.pipeline.extract_content", lambda html, url, data_root: "full article body")
