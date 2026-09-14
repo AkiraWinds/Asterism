@@ -7,11 +7,39 @@ docs/superpowers/specs/2026-08-02-radar-content-discovery-design.md.
 """
 
 import math
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.graph_store.store import nearest_neighbors
 from app.providers.embeddings import embed_text
 from app.repositories.config_repository import DEFAULT_EMBEDDINGS_MODEL
+
+# Radar runs roughly daily, so a 3-day half-life means a brand-new post
+# scores meaningfully higher than an equally-similar item pulled from a
+# source's entire historical backlog (previously they competed purely on
+# embedding similarity — see todo.md's 2026-09-11 Radar entry). The floor
+# keeps this a deprioritization, not an elimination: a much older item that's
+# far more relevant can still outrank a barely-relevant new one.
+RADAR_RECENCY_HALF_LIFE_DAYS = 3.0
+RADAR_RECENCY_FLOOR = 0.2
+
+
+def _recency_weight(published_at: str | None, *, now: datetime | None = None) -> float:
+    """Exponential decay by age in days, floored at RADAR_RECENCY_FLOOR.
+    Returns 1.0 (no penalty) when there's no date to score against — some
+    feeds omit published_at entirely, and an unknown age shouldn't be
+    treated as an old one."""
+    if not published_at:
+        return 1.0
+    try:
+        published = datetime.fromisoformat(published_at)
+    except ValueError:
+        return 1.0
+    if published.tzinfo is None:
+        published = published.replace(tzinfo=timezone.utc)
+
+    age_days = max(((now or datetime.now(timezone.utc)) - published).total_seconds() / 86400.0, 0.0)
+    return max(0.5 ** (age_days / RADAR_RECENCY_HALF_LIFE_DAYS), RADAR_RECENCY_FLOOR)
 
 
 def filter_new_items(items: list[dict], seen_urls: set[str]) -> list[dict]:
@@ -32,9 +60,11 @@ def coarse_filter(
     embeddings_model: str = DEFAULT_EMBEDDINGS_MODEL, return_rejected: bool = False,
 ) -> list[dict] | tuple[list[dict], list[dict]]:
     """Scores each item by the best of: its similarity to the nearest
-    concept-graph concept, or its similarity to any boost topic. Returns the
-    top_n items sorted by that score descending, each with a _coarse_score
-    field attached.
+    concept-graph concept, or its similarity to any boost topic, multiplied
+    by a recency weight (see _recency_weight) so a source's older backlog
+    doesn't compete evenly against genuinely new posts. Returns the top_n
+    items sorted by that score descending, each with a _coarse_score field
+    attached.
 
     `return_rejected` defaults to False so every existing caller keeps its
     original contract (a plain list) untouched. Pass True to additionally get
@@ -59,7 +89,8 @@ def coarse_filter(
         for boost_embedding in boost_embeddings:
             best = max(best, _cosine_similarity(embedding, boost_embedding))
 
-        scored.append({**item, "_coarse_score": best})
+        weighted = best * _recency_weight(item.get("published_at"))
+        scored.append({**item, "_coarse_score": weighted})
 
     scored.sort(key=lambda i: i["_coarse_score"], reverse=True)
     if return_rejected:

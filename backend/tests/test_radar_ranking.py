@@ -1,6 +1,9 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from app.radar.ranking import coarse_filter, filter_new_items
+import pytest
+
+from app.radar.ranking import RADAR_RECENCY_FLOOR, _recency_weight, coarse_filter, filter_new_items
 from app.repositories.source_repository import create_source_from_url, list_source_urls
 
 
@@ -77,3 +80,43 @@ def test_coarse_filter_return_rejected_splits_shortlist_and_below_cut(tmp_path: 
     assert [i["url"] for i in shortlist] == ["https://example.com/close"]
     assert [i["url"] for i in below_cut] == ["https://example.com/far"]
     assert "_coarse_score" in below_cut[0]
+
+
+def test_recency_weight_is_full_for_missing_published_at():
+    # Some feeds omit published_at entirely — no age signal means no penalty.
+    assert _recency_weight(None) == 1.0
+
+
+def test_recency_weight_is_full_for_a_brand_new_item():
+    now = datetime(2026, 9, 14, tzinfo=timezone.utc)
+    assert _recency_weight(now.isoformat(), now=now) == 1.0
+
+
+def test_recency_weight_decays_with_age_and_is_floored():
+    now = datetime(2026, 9, 14, tzinfo=timezone.utc)
+    half_life_ago = (now - timedelta(days=3)).isoformat()
+    ancient = (now - timedelta(days=365)).isoformat()
+
+    assert _recency_weight(half_life_ago, now=now) == pytest.approx(0.5, abs=1e-6)
+    # Floored, not zeroed — a much older item stays deprioritized, not eliminated.
+    assert _recency_weight(ancient, now=now) == RADAR_RECENCY_FLOOR
+
+
+def test_coarse_filter_ranks_recent_item_above_older_equally_similar_item(tmp_path: Path, monkeypatch):
+    # Both items embed identically (same similarity to the graph) so the only
+    # thing that can separate them is the recency weight applied on top.
+    monkeypatch.setattr("app.radar.ranking.embed_text", lambda api_key, text, **_kwargs: [0.9])
+    monkeypatch.setattr(
+        "app.radar.ranking.nearest_neighbors",
+        lambda db_path, embedding, top_k=1: [({"term": "x", "definition": "y", "golden": False}, embedding[0], embedding[0])],
+    )
+
+    now = datetime(2026, 9, 14, tzinfo=timezone.utc)
+    items = [
+        {"url": "https://example.com/old", "title": "old", "summary": "", "published_at": (now - timedelta(days=30)).isoformat()},
+        {"url": "https://example.com/new", "title": "new", "summary": "", "published_at": now.isoformat()},
+    ]
+
+    result = coarse_filter(tmp_path / "graph.db", "fake-key", items, boost_terms=[], top_n=2)
+
+    assert [i["url"] for i in result] == ["https://example.com/new", "https://example.com/old"]
