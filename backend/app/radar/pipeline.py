@@ -168,6 +168,28 @@ def refresh_radar(
             continue
         except Exception as exc:  # noqa: BLE001 - any other per-item failure must not break the run
             logger.warning("Radar judgment failed url=%s error=%s", item["url"], exc)
+            # Persist as 'rejected' rather than just skipping — a per-item
+            # content-fetch/judgment failure (e.g. a host that blocks
+            # automated requests, confirmed live against openai.com) would
+            # otherwise never enter list_all_radar_item_urls's dedup set, so
+            # the same permanently-failing URL gets re-fetched, re-embedded,
+            # and re-blocked on every future run forever at real (if small)
+            # embedding cost, for zero possible payoff. Same shape as the
+            # RADAR_RELEVANCE_FLOOR persistence below.
+            insert_radar_item(
+                db_path,
+                item_id=uuid.uuid4().hex[:12],
+                source_id=item["_source_id"],
+                url=item["url"],
+                title=item["title"],
+                summary=item.get("summary", ""),
+                published_at=item.get("published_at"),
+                relevance_score=item["_coarse_score"],
+                quality_score=0.0,
+                reasoning=f"Content fetch or judgment failed: {exc}",
+                created_at=_now_iso(),
+                status="rejected",
+            )
             continue
 
         if judgment["relevance_score"] < RADAR_RELEVANCE_FLOOR:

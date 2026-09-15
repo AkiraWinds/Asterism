@@ -222,6 +222,42 @@ def test_refresh_radar_persists_below_floor_items_as_rejected(tmp_path: Path, mo
     assert "https://one.example.com/post" in list_all_radar_item_urls(db_path)
 
 
+def test_refresh_radar_persists_per_item_judge_failures_as_rejected(tmp_path: Path, monkeypatch):
+    """A per-item content-fetch/judgment failure (e.g. a host that blocks
+    automated requests, confirmed live against openai.com) must still be
+    written to radar_items (status='rejected') so it enters the cross-run
+    dedup set — otherwise the same permanently-failing URL is re-fetched,
+    re-embedded, and re-blocked on every future refresh forever."""
+    db_path = _setup(tmp_path)
+    insert_feed_source(db_path, "s1", "Blocking Source", "https://blocking.example.com/rss", "2026-08-02T00:00:00+00:00")
+
+    monkeypatch.setattr(
+        "app.radar.pipeline.fetch_feed_items",
+        lambda url: [{"url": "https://blocking.example.com/post", "title": "A Post", "summary": "About agents.", "published_at": None}],
+    )
+    monkeypatch.setattr("app.radar.pipeline.list_source_urls", lambda data_root: set())
+    monkeypatch.setattr(
+        "app.radar.pipeline.coarse_filter",
+        lambda graph_db_path, api_key, items, boost_terms, top_n=20, **_kwargs: ([{**i, "_coarse_score": 0.42} for i in items], []),
+    )
+
+    def _fetch_url(url):
+        raise RuntimeError("This site blocks automated requests.")
+
+    monkeypatch.setattr("app.radar.pipeline.fetch_url", _fetch_url)
+
+    summary = refresh_radar(tmp_path, _StubProvider(), "fake-embed-key")
+
+    assert summary["Blocking Source"]["new"] == 0
+
+    from app.radar_store.store import list_all_radar_item_urls
+
+    # Present for cross-run dedup, so it's never retried again...
+    assert "https://blocking.example.com/post" in list_all_radar_item_urls(db_path)
+    # ...but excluded from GET /radar (status != 'new').
+    assert list_new_radar_items(db_path, cutoff_iso="2020-01-01T00:00:00+00:00") == []
+
+
 def test_refresh_radar_judge_provider_missing_error_isolated_to_source(tmp_path: Path, monkeypatch):
     """judge_item raising ProviderMissingError/ProviderConfigError signals a
     systemic provider misconfiguration, not a per-item content failure — it
